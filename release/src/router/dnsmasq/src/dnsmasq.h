@@ -137,6 +137,7 @@ typedef unsigned long long u64;
 #endif
 
 #if defined(HAVE_LINUX_NETWORK)
+#include <linux/sockios.h>
 #include <linux/capability.h>
 /* There doesn't seem to be a universally-available 
    userspace header for these. */
@@ -260,7 +261,8 @@ struct event_desc {
 #define OPT_TFTP_APREF_MAC 56
 #define OPT_RAPID_COMMIT   57
 #define OPT_UBUS           58
-#define OPT_LAST           59
+#define OPT_IGNORE_CLID    59
+#define OPT_LAST           60
 
 #define OPTION_BITS (sizeof(unsigned int)*8)
 #define OPTION_SIZE ( (OPT_LAST/OPTION_BITS)+((OPT_LAST%OPTION_BITS)!=0) )
@@ -910,6 +912,16 @@ struct dhcp_context {
   struct dhcp_context *next, *current;
 };
 
+struct shared_network {
+  int if_index;
+  struct in_addr match_addr, shared_addr;
+#ifdef HAVE_DHCP6
+  /* shared_addr == 0 for IP6 entries. */
+  struct in6_addr match_addr6, shared_addr6;
+#endif
+  struct shared_network *next;
+};
+
 #define CONTEXT_STATIC         (1u<<0)
 #define CONTEXT_NETMASK        (1u<<1)
 #define CONTEXT_BRDCAST        (1u<<2)
@@ -1068,7 +1080,7 @@ extern struct daemon {
 #ifdef HAVE_DNSSEC
   char *keyname; /* MAXDNAME size buffer */
   char *workspacename; /* ditto */
-  char *rr_status; /* flags for individual RRs */
+  unsigned long *rr_status; /* ceiling in TTL from DNSSEC or zero for insecure */
   int rr_status_sz;
   int dnssec_no_time_check;
   int back_to_the_future;
@@ -1107,6 +1119,7 @@ extern struct daemon {
   struct ping_result *ping_results;
   FILE *lease_stream;
   struct dhcp_bridge *bridges;
+  struct shared_network *shared_networks;
 #ifdef HAVE_DHCP6
   int duid_len;
   unsigned char *duid;
@@ -1118,6 +1131,11 @@ extern struct daemon {
   void *dbus;
 #ifdef HAVE_DBUS
   struct watch *watches;
+#endif
+  /* UBus stuff */
+#ifdef HAVE_UBUS
+  /* void * here to avoid depending on ubus headers outside ubus.c */
+  void *ubus;
 #endif
 
   /* TFTP stuff */
@@ -1222,7 +1240,7 @@ size_t dnssec_generate_query(struct dns_header *header, unsigned char *end, char
 int dnssec_validate_by_ds(time_t now, struct dns_header *header, size_t plen, char *name, char *keyname, int class);
 int dnssec_validate_ds(time_t now, struct dns_header *header, size_t plen, char *name, char *keyname, int class);
 int dnssec_validate_reply(time_t now, struct dns_header *header, size_t plen, char *name, char *keyname, int *class,
-			  int check_unsigned, int *neganswer, int *nons);
+			  int check_unsigned, int *neganswer, int *nons, int *nsec_ttl);
 int dnskey_keytag(int alg, int flags, unsigned char *key, int keylen);
 size_t filter_rrsigs(struct dns_header *header, size_t plen);
 unsigned char* hash_questions(struct dns_header *header, size_t plen, char *name);
@@ -1460,6 +1478,7 @@ void emit_dbus_signal(int action, struct dhcp_lease *lease, char *hostname);
 
 /* ubus.c */
 #ifdef HAVE_UBUS
+void ubus_init(void);
 void set_ubus_listeners(void);
 void check_ubus_listeners(void);
 void ubus_event_bcast(const char *type, const char *mac, const char *ip, const char *name, const char *interface);

@@ -711,11 +711,9 @@ obj-$(RTCONFIG_TRAFFIC_LIMITER) += sqlite
 obj-$(RTCONFIG_TRAFFIC_LIMITER) += traffic_limiter
 
 obj-$(RTCONFIG_LETSENCRYPT) += openssl
-obj-$(RTCONFIG_LETSENCRYPT) += acme-client-portable
-ifneq ($(RTCONFIG_WEBDAV),y)
-obj-$(RTCONFIG_LETSENCRYPT) += lighttpd-le
-endif
+obj-$(RTCONFIG_LETSENCRYPT) += acme.sh
 obj-$(RTCONFIG_LETSENCRYPT) += libletsencrypt
+obj-$(RTCONFIG_LETSENCRYPT) += socat
 
 #obj-$(RTCONFIG_SYSSTATE) += sysstate
 obj-y += sysstate
@@ -3583,7 +3581,7 @@ rp-pppoe-install: rp-pppoe
 	$(STRIP) $(INSTALLDIR)/rp-pppoe/usr/sbin/pppoe-relay
 
 rp-l2tp/stamp-h1: kernel_header
-	cd rp-l2tp && CFLAGS="-O2 -Wall $(EXTRACFLAGS) -idirafter $(KDIR)/include $(if $(RTCONFIG_VPNC), -DRTCONFIG_VPNC,)" \
+	cd rp-l2tp && CFLAGS="-O2 -Wall $(EXTRACFLAGS) -idirafter $(KDIR)/include" \
 	$(CONFIGURE) --prefix=/usr --sysconfdir=/tmp
 	touch $@
 
@@ -3620,7 +3618,7 @@ accel-pptp/linux/version.h:
 endif
 
 accel-pptp/stamp-h1: kernel_header $(if $(RTCONFIG_REALTEK), accel-pptp/linux/version.h, $(LINUX_INC_DIR)/$(INCLUDE_LINUX_VERSION_H))
-	cd accel-pptp && CFLAGS="-g -O2 $(EXTRACFLAGS) -idirafter $(KDIR)/include $(if $(RTCONFIG_VPNC), -DRTCONFIG_VPNC,)" \
+	cd accel-pptp && CFLAGS="-g -O2 $(EXTRACFLAGS) -idirafter $(KDIR)/include" \
 	$(CONFIGURE) --prefix=/usr --build=i686-linux KDIR=$(KDIR) PPPDIR=$(TOP)/pppd 
 	touch $@
 
@@ -3642,7 +3640,7 @@ pppd/stamp-h1: kernel_header
 pppd: pppd/stamp-h1
 	@$(SEP)
 	@$(MAKE) -C pppd MFLAGS='$(if $(RTCONFIG_IPV6),HAVE_INET6=y,) \
-	EXTRACFLAGS="$(EXTRACFLAGS) -idirafter $(KDIR)/include $(if $(RTCONFIG_VPNC),-DRTCONFIG_VPNC,)"'
+	EXTRACFLAGS="$(EXTRACFLAGS) -idirafter $(KDIR)/include"'
 
 pppd-clean:
 	-@$(MAKE) -C pppd clean
@@ -3865,6 +3863,25 @@ protect_srv-clean:
 	-$(MAKE) -C protect_srv clean
 	@rm -f protect_srv/stamp-h1
 
+socat/Makefile:
+	cd socat && \
+	$(CONFIGURE) --prefix=/usr \
+	CFLAGS="-I$(STAGEDIR)/usr/include" \
+	LDFLAGS="-L$(STAGEDIR)/usr/lib -ldl"
+	touch $@
+
+socat: socat/Makefile
+	$(MAKE) -C $@
+
+socat-clean:
+	[ ! -f socat/Makefile ] || $(MAKE) -C socat distclean
+	@rm -f socat/Makefile
+
+socat-install:
+	install -d $(INSTALLDIR)/socat/usr/sbin/
+	install -D socat/socat $(INSTALLDIR)/socat/usr/sbin/socat
+	$(STRIP) $(INSTALLDIR)/socat/usr/sbin/socat
+
 #	$(STRIP) $(INSTALLDIR)/tr/sbin/*
 
 #	libnet:
@@ -3992,7 +4009,7 @@ lldpd-0.9.8/Makefile:
 	CFLAGS="-g -O2 -I$(STAGEDIR)/usr/include" \
 	LDFLAGS="-L$(TOP)/lldpd-0.9.8/lib -lm -L$(STAGEDIR)/usr/lib -ljansson $(if $(RTCONFIG_AMAS),-L$(TOP)/json-c/.libs,) -ldl" \
 	--with-privsep-user=nobody --with-privsep-group=root --with-privsep-path=/var/run/lldpd \
-	$(if $(HND_ROUTER),,--enable-oldies) \
+	$(if $(filter y,$(HND_ROUTER)),,--enable-oldies) \
 	$(if $(RTCONFIG_AMAS),--with-json=yes,)
 
 lldpd-0.9.8-install: lldpd-0.9.8
@@ -5452,7 +5469,7 @@ curl-install:
 	cd $(INSTALLDIR)/curl/usr/lib && \
 		ln -sf libcurl.so.4.5.0 libcurl.so && \
 		ln -sf libcurl.so.4.5.0 libcurl.so.4
-ifeq ($(RTCONFIG_SPEEDTEST),y)
+ifeq ($(or $(RTCONFIG_SPEEDTEST),$(RTCONFIG_LETSENCRYPT)),y)
 	# for speedtest
 	install -D curl/src/.libs/curl $(INSTALLDIR)/curl/usr/sbin/curl
 	$(STRIP) $(INSTALLDIR)/curl/usr/sbin/curl
@@ -5480,7 +5497,7 @@ curl-7.21.x-install: curl-7.21.x
 	install -D curl-7.21.x/lib/.libs/libcurl.so.4.2.0 $(INSTALLDIR)/curl-7.21.x/usr/lib/libcurl.so.4.2.0
 	$(STRIP) $(INSTALLDIR)/curl-7.21.x/usr/lib/libcurl.so.4.2.0
 	cd $(INSTALLDIR)/curl-7.21.x/usr/lib && ln -sf libcurl.so.4.2.0 libcurl.so && ln -sf libcurl.so.4.2.0 libcurl.so.4
-ifeq ($(RTCONFIG_SPEEDTEST),y)
+ifeq ($(or $(RTCONFIG_SPEEDTEST),$(RTCONFIG_LETSENCRYPT)),y)
 	# for speedtest
 	install -D curl-7.21.x/src/.libs/curl $(INSTALLDIR)/curl-7.21.x/usr/sbin/curl
 	$(STRIP) $(INSTALLDIR)/curl-7.21.x/usr/sbin/curl
@@ -7059,41 +7076,6 @@ phddns-install: phddns
 phddns-clean:
 	@[ ! -f phddns/Makefile ] || $(MAKE) -C phddns clean
 	@rm -f phddns/stamp-h1
-
-acme-client-portable:
-	$(MAKE) -C acme-client-portable
-
-acme-client-portable-install: acme-client-portable
-	install -D acme-client-portable/acme-client $(INSTALLDIR)/acme-client-portable/usr/sbin/acme-client
-	$(STRIP) $(INSTALLDIR)/acme-client-portable/usr/sbin/acme-client
-
-lighttpd-le/configure:
-	cd lighttpd-le && ./autogen.sh
-
-lighttpd-le/Makefile: lighttpd-le/configure
-	cd lighttpd-le && \
-	$(CONFIGURE) \
-	--prefix=/usr/local \
-	--with-openssl=$(STAGEDIR)/usr \
-	--without-pcre \
-	--without-zlib \
-	--without-bzip2
-	@touch $@
-
-lighttpd-le: openssl lighttpd-le/Makefile
-	$(MAKE) -C lighttpd-le
-
-lighttpd-le-clean:
-	-@[ ! -f lighttpd-le/Makefile ] || $(MAKE) -C lighttpd-le distclean
-	@rm -f lighttpd-le/Makefile
-
-lighttpd-le-install: lighttpd-le
-	install -D lighttpd-le/src/lighttpd $(INSTALLDIR)/lighttpd-le/usr/sbin/lighttpd
-	install -D lighttpd-le/src/.libs/mod_dirlisting.so $(INSTALLDIR)/lighttpd-le/usr/local/lib/mod_dirlisting.so
-	install -D lighttpd-le/src/.libs/mod_staticfile.so $(INSTALLDIR)/lighttpd-le/usr/local/lib/mod_staticfile.so
-	install -D lighttpd-le/src/.libs/mod_indexfile.so $(INSTALLDIR)/lighttpd-le/usr/local/lib/mod_indexfile.so
-	$(STRIP) $(INSTALLDIR)/lighttpd-le/usr/sbin/lighttpd
-	$(STRIP) $(INSTALLDIR)/lighttpd-le/usr/local/lib/mod_*.so
 
 quicksec-7.0:
 	@$(SEP)

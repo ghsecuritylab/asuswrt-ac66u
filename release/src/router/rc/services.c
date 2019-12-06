@@ -1118,7 +1118,7 @@ void gen_apmode_dnsmasq(void)
 void start_dnsmasq(void)
 {
 	FILE *fp;
-	char *lan_ifname, *lan_ipaddr;
+	char *lan_ifname, *lan_ipaddr, *lan_hostname;
 	char *value, *value2;
 	int /*i,*/ have_dhcp = 0;
 #ifdef RTCONFIG_IPSEC
@@ -1158,6 +1158,13 @@ void start_dnsmasq(void)
 	if ((fp = fopen("/etc/hosts", "w")) != NULL) {
 		/* loclhost ipv4 */
 		fprintf(fp, "127.0.0.1 localhost.localdomain localhost\n");
+
+		/* lan hostname.domain hostname */
+		lan_hostname = get_lan_hostname();
+		fprintf(fp, "%s %s.%s %s\n", lan_ipaddr,
+			    lan_hostname, nvram_safe_get("lan_domain"),
+			    lan_hostname);
+
 		/* default names */
 		fprintf(fp, "%s %s\n", lan_ipaddr, DUT_DOMAIN_NAME);
 		fprintf(fp, "%s %s\n", lan_ipaddr, OLD_DUT_DOMAIN_NAME1);
@@ -1166,19 +1173,16 @@ void start_dnsmasq(void)
 		if (is_dpsta_repeater() && nvram_get_int("re_mode") == 0)
 		fprintf(fp, "%s %s\n", lan_ipaddr, "repeater.asus.com");
 #endif
-		/* lan hostname.domain hostname */
-		if (nvram_invmatch("lan_hostname", "")) {
+#ifdef RTCONFIG_USB
+		/* samba name */
+		if (is_valid_hostname(value = nvram_safe_get("computer_name")) &&
+		    strcasecmp(lan_hostname, value) != 0) {
 			fprintf(fp, "%s %s.%s %s\n", lan_ipaddr,
-				    nvram_safe_get("lan_hostname"),
-				    nvram_safe_get("lan_domain"),
-				    nvram_safe_get("lan_hostname"));
+				    value, nvram_safe_get("lan_domain"),
+				    value);
 		}
-		/* productid/samba name */
-		if (is_valid_hostname(value = nvram_safe_get("computer_name")) ||
-		    is_valid_hostname(value = get_productid())) {
-			fprintf(fp, "%s %s.%s %s\n", lan_ipaddr,
-				    value, nvram_safe_get("lan_domain"), value);
-		}
+#endif
+
 #ifdef RTCONFIG_IPV6
 		if (ipv6_enabled()) {
 			/* localhost ipv6 */
@@ -1188,16 +1192,15 @@ void start_dnsmasq(void)
 				    "ff00::0 ip6-mcastprefix\n"
 				    "ff02::1 ip6-allnodes\n"
 				    "ff02::2 ip6-allrouters\n");
+
 			/* lan6 hostname.domain hostname */
 			value = (char*) ipv6_router_address(NULL);
-			if (*value && nvram_invmatch("lan_hostname", "")) {
+			if (*value) {
 				fprintf(fp, "%s %s.%s %s\n", value,
-					    nvram_safe_get("lan_hostname"),
-					    nvram_safe_get("lan_domain"),
-					    nvram_safe_get("lan_hostname"));
+					    lan_hostname, nvram_safe_get("lan_domain"),
+					    lan_hostname);
 			}
 		}
-
 #endif
 		fclose(fp);
 	} else
@@ -3613,6 +3616,7 @@ _dprintf("%s: do ez-ipupdate to unregister! unit = %d wan_ifname = %s nserver = 
 	return 0;
 }
 
+#ifdef RTCONFIG_RSYSLOGD
 char *get_loglevel_string(int loglevel){
 	if(loglevel == LOG_EMERG)
 		return "emerg";
@@ -3676,7 +3680,6 @@ void write_rsyslogd_conf(){
 int
 start_syslogd(void)
 {
-#ifdef RTCONFIG_RSYSLOGD
 	int pid;
 	char *cmd[] = {"/usr/sbin/rsyslogd", NULL};
 
@@ -3686,10 +3689,24 @@ start_syslogd(void)
 		_eval(cmd, NULL, 0, &pid);
 
 	return 0;
-#else
-	int argc;
+}
+
+void
+stop_syslogd(void)
+{
+	if(pids("rsyslogd"))
+		killall_tk("rsyslogd");
+}
+#else /* RTCONFIG_RSYSLOGD */
+
+int
+start_syslogd(void)
+{
 	char syslog_path[PATH_MAX];
 	char syslog_addr[128];
+#ifdef RTCONFIG_AMAS
+	char syslog_hostname[128];
+#endif
 	char *syslogd_argv[] = {"/sbin/syslogd",
 		"-m", "0",				/* disable marks */
 		"-S",					/* small log */
@@ -3699,13 +3716,17 @@ start_syslogd(void)
 		NULL, NULL,				/* -l log_level */
 		NULL, NULL,				/* -R log_ipaddr[:port] */
 		NULL,					/* -L log locally too */
+#ifdef RTCONFIG_AMAS
+		NULL, NULL,				/* -H hostname */
+#endif
 		NULL
 	};
-
-	snprintf(syslog_path, sizeof(syslog_path), "%s", get_syslog_fname(0));
+	int argc;
 	for (argc = 0; syslogd_argv[argc]; argc++);
 
-	if (nvram_invmatch("log_size", "")) {
+	snprintf(syslog_path, sizeof(syslog_path), "%s", get_syslog_fname(0));
+
+	if (nvram_get_int("log_size")) {
 		syslogd_argv[argc++] = "-s";
 #if defined(MAPAC2200) || defined(MAPAC1300) || defined(VZWAC1300) || defined(RTAC95U)
 		if (nvram_get_int("lyra_dbg"))
@@ -3729,6 +3750,19 @@ start_syslogd(void)
 		syslogd_argv[argc++] = "-R";
 		syslogd_argv[argc++] = addr;
 		syslogd_argv[argc++] = "-L";
+
+#ifdef RTCONFIG_AMAS
+		if (1 /* TODO: differ standalone mode from aimesh cap/re to avoid hostname trashing */) {
+			char gid[8];
+
+			strlcpy(gid, nvram_safe_get("cfg_group"), sizeof(gid));
+			snprintf(syslog_hostname, sizeof(syslog_hostname), "%s-%s-%s",
+				 get_lan_hostname(), gid, node_str());
+
+			syslogd_argv[argc++] = "-H";
+			syslogd_argv[argc++] = syslog_hostname;
+		}
+#endif
 	}
 
 //#if defined(RTCONFIG_JFFS2LOG) && defined(RTCONFIG_JFFS2)
@@ -3748,18 +3782,11 @@ start_syslogd(void)
 	//setenv("TZ", nvram_safe_get("time_zone_x"), 1);
 
 	return _eval(syslogd_argv, NULL, 0, NULL);
-#endif
 }
 
 void
 stop_syslogd(void)
 {
-#ifdef RTCONFIG_RSYSLOGD
-	if(pids("rsyslogd"))
-		killall_tk("rsyslogd");
-
-	return;
-#else
 #if defined(RTCONFIG_JFFS2LOG) && (defined(RTCONFIG_JFFS2)||defined(RTCONFIG_BRCM_NAND_JFFS2))
 	int running = pids("syslogd");
 #endif
@@ -3777,15 +3804,19 @@ stop_syslogd(void)
 	if (running)
 		eval("cp", "/tmp/syslog.log", "/tmp/syslog.log-1", prefix);
 #endif
-#endif
+}
+
+void
+reload_syslogd(void)
+{
+	/* notify syslogd */
+	if (nvram_invmatch("log_ipaddr", ""))
+		kill_pidfile_s("/var/run/syslogd.pid", SIGHUP);
 }
 
 int
 start_klogd(void)
 {
-#ifdef RTCONFIG_RSYSLOGD
-	return 0;
-#else
 	int argc;
 	char *klogd_argv[] = {"/sbin/klogd",
 		NULL, NULL,				/* -c console_loglevel */
@@ -3800,19 +3831,15 @@ start_klogd(void)
 	}
 
 	return _eval(klogd_argv, NULL, 0, NULL);
-#endif
 }
 
 void
 stop_klogd(void)
 {
-#ifdef RTCONFIG_RSYSLOGD
-	return;
-#else
 	if (pids("klogd"))
 		killall_tk("klogd");
-#endif
 }
+#endif
 
 #ifdef HND_ROUTER
 extern int dump_prev_oops(void);
@@ -3821,9 +3848,10 @@ extern int dump_prev_oops(void);
 int
 start_logger(void)
 {
-_dprintf("%s:\n", __FUNCTION__);
 	start_syslogd();
+#ifndef RTCONFIG_RSYSLOGD
 	start_klogd();
+#endif
 
 #if defined(DUMP_PREV_OOPS_MSG) && defined(RTCONFIG_BCMARM)
 #if defined(HND_ROUTER) && defined(RTCONFIG_BRCM_NAND_JFFS2)
@@ -3847,7 +3875,9 @@ void
 stop_logger(void)
 {
 	stop_syslogd();
+#ifndef RTCONFIG_RSYSLOGD
 	stop_klogd();
+#endif
 }
 
 #ifdef RTCONFIG_BCMWL6
@@ -4410,17 +4440,10 @@ chpass(char *user, char *pass)
 void
 set_hostname(void)
 {
-	FILE *fp;
-	const char *p;
+	char *hostname = get_lan_hostname();
 
-	if ((p = get_productid()) != NULL && (*p) != '\0')
-	{
-		if ((fp=fopen("/proc/sys/kernel/hostname", "w+")))
-		{
-			fputs(p, fp);
-			fclose(fp);
-		}
-	}
+	if (*hostname)
+		f_write_string("/proc/sys/kernel/hostname", hostname, 0, 0);
 }
 
 int
@@ -4688,7 +4711,7 @@ void start_upnp(void)
 	char *gfn_mode = "no";
 #endif
 
-	if (getpid() != 1) {
+	if (getpid() != 1 && getuid() != 0) {
 		notify_rc("start_upnp");
 		return;
 	}
@@ -4787,7 +4810,7 @@ void start_upnp(void)
 #endif
 					nvram_get_int("upnp_secure") ? "yes" : "no",	// secure_mode (only forward to self)
 					nvram_get_int("upnp_ssdp_interval"),
-					get_productid(),
+					get_lan_hostname(),
 					get_productid(),
 					"ASUS Wireless Router",
 					rt_version, rt_serialno,
@@ -4940,7 +4963,7 @@ void start_upnp(void)
 
 void stop_upnp(void)
 {
-	if (getpid() != 1) {
+	if (getpid() != 1 && getuid() != 0) {
 		notify_rc("stop_upnp");
 		return;
 	}
@@ -5060,6 +5083,7 @@ int start_lltd(void)
 	{
 #ifdef RTCONFIG_BCMARM
 		write_lltd_conf();
+/* TODO: clarify do we need to use lan_hostname instead of productid here */
 		nvram_set("lld2d_hostname", get_productid());
 #endif
 		eval("lld2d", "br0");
@@ -5109,12 +5133,9 @@ int generate_mdns_config(void)
 {
 	FILE *fp;
 	char avahi_config[80], *user;
-	char et0macaddr[18];
 	int ret = 0;
 
 	sprintf(avahi_config, "%s/%s", AVAHI_CONFIG_PATH, AVAHI_CONFIG_FN);
-
-	strcpy(et0macaddr, get_lan_hwaddr());
 
 	/* Generate avahi configuration file */
 	if (!(fp = fopen(avahi_config, "w"))) {
@@ -5130,7 +5151,7 @@ int generate_mdns_config(void)
 		user = "admin";
 	fprintf(fp, "user=%s\n", user);
 
-	fprintf(fp, "host-name=%s-%c%c%c%c\n", get_productid(),et0macaddr[12],et0macaddr[13],et0macaddr[15],et0macaddr[16]);
+	fprintf(fp, "host-name=%s\n", get_lan_hostname());
 #ifdef RTCONFIG_FINDASUS
 	fprintf(fp, "aliases=findasus,%s\n",get_productid());
 	fprintf(fp, "aliases_llmnr=findasus,%s\n",get_productid());
@@ -5232,7 +5253,7 @@ int generate_itune_service_config(void)
 	FILE *fp;
 	char itune_service_config[80];
 	int ret = 0;
-	char servername[32];
+	char *servername;
 
 	sprintf(itune_service_config, "%s/%s", AVAHI_SERVICES_PATH, AVAHI_ITUNE_SERVICE_FN);
 
@@ -5242,15 +5263,12 @@ int generate_itune_service_config(void)
 		return -1;
 	}
 
-	if (is_valid_hostname(nvram_safe_get("daapd_friendly_name")))
-		strncpy(servername, nvram_safe_get("daapd_friendly_name"), sizeof(servername));
-	else
-		servername[0] = '\0';
-	if(strlen(servername)==0) strncpy(servername, get_productid(), sizeof(servername));
-
+	servername = nvram_safe_get("daapd_friendly_name");
+	if (*servername == '\0' || !is_valid_hostname(servername))
+		servername = get_lan_hostname();
 
 	fprintf(fp, "<service-group>\n");
-	fprintf(fp, "<name replace-wildcards=\"yes\">%s</name>\n",servername);
+	fprintf(fp, "<name replace-wildcards=\"yes\">%s</name>\n", servername);
 	fprintf(fp, "<service>\n");
 	fprintf(fp, "<type>_daap._tcp</type>\n");
 	fprintf(fp, "<port>3689</port>\n");
@@ -8161,6 +8179,7 @@ start_services(void)
 	start_aura_rgb_sw();
 #endif
 	start_watchdog();
+	start_check_watchdog();
 #ifdef RTAC87U
 	start_watchdog02();
 #endif
@@ -8453,6 +8472,7 @@ stop_services(void)
 	stop_eth_obd();
 #endif
 #endif
+	stop_check_watchdog();
 	stop_watchdog();
 #ifdef RTCONFIG_FANCTRL
 	stop_phy_tempsense();
@@ -8911,6 +8931,12 @@ stop_watchdog(void)
 	killall_tk("watchdog");
 }
 
+void
+stop_check_watchdog(void)
+{
+	killall_tk("check_watchdog");
+}
+
 #if ! (defined(RTCONFIG_QCA) || defined(RTCONFIG_RALINK))
 void
 stop_watchdog02(void)
@@ -8960,6 +8986,15 @@ start_watchdog(void)
 	pid_t whpid;
 
 	return _eval(watchdog_argv, NULL, 0, &whpid);
+}
+
+int
+start_check_watchdog(void)
+{
+	char *check_watchdog_argv[] = {"check_watchdog", NULL};
+	pid_t pid;
+
+	return _eval(check_watchdog_argv, NULL, 0, &pid);
 }
 
 #ifdef RTAC87U
@@ -9540,7 +9575,6 @@ void check_services(void)
 		init_x_Setting = 1;
 	}
 #endif
-
 }
 
 #define RC_SERVICE_STOP 0x01
@@ -10375,12 +10409,14 @@ again:
 	}
 	else if(strcmp(script, "wltest") == 0) {
 		nvram_set("asus_mfg", "3");
+		stop_check_watchdog();
 		stop_watchdog();
 		stop_infosvr();
 		stop_services_mfg();
 	}
 	else if(strcmp(script, "ethtest") == 0) {
 		nvram_set("asus_mfg", "3");
+		stop_check_watchdog();
 		stop_watchdog();
 		stop_infosvr();
 		stop_services_mfg();
@@ -12718,6 +12754,9 @@ check_ddr_done:
 		}
 		if(action & RC_SERVICE_START) {
 			setup_timezone();
+
+			nvram_set("reload_svc_radio", "1");
+
 			refresh_ntpc();
 			start_logger();
 			start_telnetd();
@@ -12962,7 +13001,6 @@ retry_wps_enr:
 #ifdef HND_ROUTER
 		if (is_router_mode()) start_mcpd_proxy();
 #endif
-		sleep(2);
 		// TODO: function to force ppp connection
 		start_upnp();
 	}
@@ -13131,6 +13169,9 @@ retry_wps_enr:
 		int openvpnc_unit = nvram_get_int("vpn_client_unit");
 #endif
 		if (action & RC_SERVICE_STOP){
+#ifdef RTCONFIG_TUNNEL
+			stop_aae_sip_conn(1);
+#endif
 			stop_vpnc();
 #if defined(RTCONFIG_OPENVPN)
 			for( i = 1; i <= OVPN_CLIENT_MAX; i++ )
@@ -13688,6 +13729,11 @@ _dprintf("test 2. turn off the USB power during %d seconds.\n", reset_seconds[re
 		if(action & RC_SERVICE_START) start_qca_lbd();
 	}
 #endif
+	else if (strcmp(script, "watchdog") == 0)
+	{
+		if (action & RC_SERVICE_STOP) stop_watchdog();
+		if (action & RC_SERVICE_START) start_watchdog();
+	}
 	else
 	{
 		fprintf(stderr,
@@ -13924,6 +13970,10 @@ void gen_lldpd_if(char *bind_ifnames)
 
 	if (nvram_get_int("x_Setting") == 0)
 	{
+		//skip no wan port model
+		if( !strstr(nvram_safe_get("wans_cap"), "wan"))
+			return;
+
 		if(strcmp(wan_ifname, ""))
 		{
 			if (i == 0)
@@ -14031,6 +14081,7 @@ void gen_lldpd_desc(char *bind_desc)
 void start_amas_lldpd(void)
 {
 	char bind_ifnames[128] = {0};
+/* TODO: clarify do we need to use lan_hostname instead of productid here */
 	char *productid = nvram_safe_get("productid");
 	memset(bind_ifnames, 0x00, sizeof(bind_ifnames));
 
@@ -14264,7 +14315,6 @@ int run_app_script(const char *pkg_name, const char *pkg_action)
 
 	doSystem("/usr/sbin/app_init_run.sh %s %s", app_name, pkg_action);
 
-	sleep(5);
 	start_upnp();
 
 	return 0;

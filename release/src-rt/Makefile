@@ -2040,6 +2040,8 @@ define RouterOptions
 	sed -i "/RTCONFIG_ROG_UI/d" $(1); \
 	if [ "$(ROG_UI)" = "y" ]; then \
 		echo "RTCONFIG_ROG_UI=y" >>$(1); \
+		sed -i "/RTCONFIG_OPEN_NAT/d" $(1); \
+		echo "RTCONFIG_OPEN_NAT=y" >>$(1); \
 	else \
 		echo "# RTCONFIG_ROG_UI is not set" >>$(1); \
 	fi; \
@@ -2815,6 +2817,10 @@ define RouterOptions
 	if [ "$(IPERF3)" = "y" ]; then \
 		sed -i "/RTCONFIG_IPERF3/d" $(1); \
 		echo "RTCONFIG_IPERF3=y" >>$(1); \
+	fi; \
+	if [ "$(ASUSCTRL)" = "y" ]; then \
+		sed -i "/RTCONFIG_ASUSCTRL/d" $(1); \
+		echo "RTCONFIG_ASUSCTRL=y" >>$(1); \
 	fi; \
 	if [ "$(ARM)" = "y" ] && [ "$(BCMWL6)" = "y" ] && [ "$(BCM_MFG)" = "y" ]; then \
 		sed -i "/RTCONFIG_BCM_MFG/d" $(1); \
