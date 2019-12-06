@@ -1,7 +1,7 @@
 /*
  * Registrar protocol messages
  *
- * Copyright (C) 2013, Broadcom Corporation
+ * Copyright (C) 2015, Broadcom Corporation
  * All Rights Reserved.
  * 
  * This is UNPUBLISHED PROPRIETARY SOURCE CODE of Broadcom Corporation;
@@ -189,9 +189,6 @@ typedef struct {
 typedef struct {
 	CTlvVersion version;
 	CTlvMsgType msgType;
-#ifdef AMAS
-	CTlvGroupID groupid;
-#endif
 	CTlvEnrolleeNonce enrolleeNonce;
 	CTlvEncrSettings encrSettings;
 
