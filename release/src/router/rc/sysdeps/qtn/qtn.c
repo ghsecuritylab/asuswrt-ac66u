@@ -1088,3 +1088,17 @@ void check_2nd_jffs(void)
 	// format_mount_2nd_jffs2();
 }
 #endif
+
+#if defined(RTCONFIG_LANWAN_LED) || defined(RTCONFIG_LAN4WAN_LED)
+int LanWanLedCtrl(void)
+{
+#ifdef RTCONFIG_LANWAN_LED
+	if(get_lanports_status() && !inhibit_led_on())
+		led_control(LED_LAN, LED_ON);
+	else
+		led_control(LED_LAN, LED_OFF);
+#endif
+
+	return 1;
+}
+#endif

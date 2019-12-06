@@ -37,13 +37,6 @@
 
 #include <rtconfig.h>
 
-#ifdef RTCONFIG_DPSTA
-#include <dpsta_linux.h>
-#include <errno.h>
-#include <sys/ioctl.h>
-#include <sys/socket.h>
-#endif
-
 /* phy types */
 #define	PHY_TYPE_A		0
 #define	PHY_TYPE_B		1
@@ -144,6 +137,8 @@
 #endif /* BCMDBG */
 
 #define CHECK_PSK(mode) ((mode) & (WPA_AUTH_PSK | WPA2_AUTH_PSK))
+
+#define DPSTA_PRIMARY_AP_IDX 1
 
 /* prototypes */
 struct bsscfg_list *wlconf_get_bsscfgs(char* ifname, char* prefix);
@@ -1703,12 +1698,13 @@ wlconf(char *name)
 	bool ure_enab = FALSE;
 	bool radar_enab = FALSE;
 	bool obss_coex = FALSE, psta, psr;
-#ifdef RTCONFIG_PSR_GUEST
-	bool psr_mbss;
-#endif
 	chanspec_t chanspec = 0;
 	int wet_tunnel_cap = 0, wet_tunnel_enable = 0;
 	brcm_prop_ie_t brcm_syscap_ie;
+#ifdef RTCONFIG_PSR_GUEST
+	bool psr_mbss, dpsta;
+	bool mbss_ign_mac_valid = FALSE;
+#endif
 
 	/* wlconf doesn't work for virtual i/f, so if we are given a
 	 * virtual i/f return 0 if that interface is in it's parent's "vifs"
@@ -1853,6 +1849,15 @@ wlconf(char *name)
 	str = nvram_safe_get(strcat_r(prefix, "mode", tmp));
 #ifdef RTCONFIG_PSR_GUEST
 	psr_mbss = !strcmp(nvram_safe_get(strcat_r(prefix, "psr_mbss", tmp)), "1");
+
+	dpsta = nvram_invmatch("dpsta_ifnames", "");
+
+	/* must config this value before we enable MBSS */
+	if (dpsta || !strcmp(nvram_safe_get(strcat_r(prefix, "mbss_ign_mac_valid",
+		tmp)), "1")) {
+		WL_IOVAR_SETINT(name, "mbss_ign_mac_valid", 1);
+		mbss_ign_mac_valid = TRUE;
+	}
 #endif
 
 	/* If ure_disable is not present or is 1, ure is not enabled;
@@ -1891,13 +1896,6 @@ wlconf(char *name)
 			           bsscfg->ifname, nvram_safe_get(tmp));
 			WL_BSSIOVAR_SET(name, "ssid", bsscfg->idx, &ssid,
 			                sizeof(ssid));
-#ifdef RTCONFIG_PSR_GUEST
-			/* Set MBSS with real-MAC (per BSS)*/
-			if (atoi(nvram_safe_get(strcat_r(bsscfg->prefix, "mbss_rmac", tmp))))
-				WL_BSSIOVAR_SETINT(name, "mbss_rmac", bsscfg->idx, 1);
-			else
-				WL_BSSIOVAR_SETINT(name, "mbss_rmac", bsscfg->idx, 0);
-#endif
 		}
 	}
 
@@ -1912,13 +1910,27 @@ wlconf(char *name)
 
 		/* construct and set other wlX.Y_hwaddr */
 		for (i = 1; i < max_no_vifs; i++) {
-			snprintf(tmp, sizeof(tmp), "wl%d.%d_mbss_rmac", unit, i);
-			if (!strcmp(nvram_safe_get(tmp), "1"))
+			/* if dpsta w/ mbss, wlX and wlX.1 must use the same hwaddr
+			 * otherwise dpsta will fail to recevie EAPOL from upstream AP.
+			 */
+#ifdef RTCONFIG_PSR_GUEST
+			if (i == DPSTA_PRIMARY_AP_IDX && dpsta) {
+				snprintf(tmp, sizeof(tmp), "wl%d.%d_hwaddr", unit,
+					DPSTA_PRIMARY_AP_IDX);
+				printf("%s: overwrite dpsta wl%d.%d_hwaddr to %s\n",
+					__FUNCTION__, unit, DPSTA_PRIMARY_AP_IDX, addr);
+				nvram_set(tmp, nvram_safe_get(strcat_r(prefix, "hwaddr", tmp2)));
 				continue;
+			}
+#endif
 
 			snprintf(tmp, sizeof(tmp), "wl%d.%d_hwaddr", unit, i);
 			addr = nvram_safe_get(tmp);
-			if (!strcmp(addr, "")) {
+			if (!strcmp(addr, "")
+#ifdef RTCONFIG_PSR_GUEST
+				|| (psr_mbss && !mbss_ign_mac_valid)
+#endif
+			) {
 				vif_addr[5] = (vif_addr[5] & ~(max_no_vifs-1))
 				        | ((max_no_vifs-1) & (vif_addr[5]+1));
 				nvram_set(tmp, ether_etoa((uchar *)vif_addr, eaddr));
@@ -3480,126 +3492,6 @@ wlconf_security(char *name)
 	return 0;
 }
 
-#ifdef RTCONFIG_DPSTA
-static int
-wlconf_dpsta_enable(int argc, char *argv[])
-{
-	struct ifreq ifr;
-	dpsta_enable_info_t dpinfo = { 0 };
-	int ret = 0;
-	int s;
-
-	printf("%s: if:%s, enable %s, lan_uif %s, policy %s, uif0 %s, uif1 %s\n",
-		__FUNCTION__, argv[1], argv[3], argv[4], argv[5], argv[6], argv[7]);
-
-	/* open socket to kernel */
-	if ((s = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-		perror("socket");
-		return -errno;
-	}
-
-	strncpy(ifr.ifr_name, argv[1], IFNAMSIZ);
-
-	dpinfo.enable = strcmp(argv[3], "1") ? FALSE : TRUE;
-	dpinfo.lan_uif = strtoul(argv[4], NULL, 0);
-	dpinfo.policy = strtoul(argv[5], NULL, 0);
-	strncpy((char *)dpinfo.upstream_if[0], argv[6], IFNAMSIZ);
-	strncpy((char *)dpinfo.upstream_if[1], argv[7], IFNAMSIZ);
-
-	ifr.ifr_data = (caddr_t) &dpinfo;
-
-	if (ioctl(s, DPSTA_CMD_ENABLE, &ifr) < 0) {
-		ret = -errno;
-		printf("%s: ioctl fail, ret %d \n", __FUNCTION__, ret);
-	}
-
-	/* cleanup */
-	close(s);
-
-	return ret;
-}
-
-static int
-wlconf_dpsta_iovar(int argc, char *argv[], uint8 cmd)
-{
-	struct ifreq ifr;
-	int ret = 0;
-	int s, i;
-	dpsta_var_t var = { 0 };
-
-	/* open socket to kernel */
-	if ((s = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-		perror("socket");
-		return -errno;
-	}
-
-	strncpy(ifr.ifr_name, argv[1], IFNAMSIZ);
-
-	var.cmd = cmd;
-
-	switch (cmd) {
-	case DPSTA_IOV_UIF:
-		var.set = 0;
-		var.len = IFNAMSIZ;
-		break;
-	case DPSTA_IOV_MSGLEVEL:
-		if (argc == 3)
-			var.set = 0;
-		else if (argc == 4) {
-			var.set = 1;
-			var.arg = strtoul(argv[3], NULL, 0);
-		} else {
-			printf("%s: argc wrong when DPSTA_IOV_MSGLEVEL\n", __FUNCTION__);
-			return -1;
-		}
-		var.len = sizeof(int);
-		break;
-	case DPSTA_IOV_DPINFO:
-		if (argc == 3)
-			var.set = 0;
-		else {
-			printf("%s: argc wrong when DPSTA_IOV_DPINFO\n", __FUNCTION__);
-			return -1;
-		}
-		var.len = sizeof(dpsta_enable_info_t);
-		break;
-	default:
-		printf("%s: unknown cmd\n", __FUNCTION__);
-		break;
-	}
-
-	ifr.ifr_data = (caddr_t)&var;
-
-	if ((ret = ioctl(s, DPSTA_CMD_SETGETVAR, (caddr_t)&ifr)) < 0) {
-		ret = -errno;
-		printf("%s: ioctl fail, ret %d \n", __FUNCTION__, ret);
-	}
-
-	/* output if success get */
-	if (!var.set && !ret) {
-		if (cmd == DPSTA_IOV_UIF)
-			printf("%s: %s\n", __FUNCTION__, var.uif);
-		else if (cmd == DPSTA_IOV_MSGLEVEL)
-			printf("%s: %x\n", __FUNCTION__, var.arg);
-		else if (cmd == DPSTA_IOV_DPINFO) {
-			printf("%s: dpinfo %sabled lan_uif %d policy %d ",
-				__FUNCTION__, var.dpinfo.enable ? "en" : "dis",
-				var.dpinfo.lan_uif, var.dpinfo.policy);
-			for(i = 0; i < DPSTA_NUM_UPSTREAM_IF; i++) {
-				if (var.dpinfo.upstream_if[i] && var.dpinfo.upstream_if[i][0] != '\0')
-					printf("uif[%d] %s ", i, var.dpinfo.upstream_if[i]);
-			}
-			printf("\n");
-		}
-	}
-
-	/* cleanup */
-	close(s);
-
-	return ret;
-}
-#endif
-
 int
 main(int argc, char *argv[])
 {
@@ -3612,28 +3504,6 @@ main(int argc, char *argv[])
 	  return wlconf_start(argv[1]);
 	else if (argc == 3 && !strcmp(argv[2], "security"))
 	  return wlconf_security(argv[1]);
-#ifdef RTCONFIG_DPSTA
-	else if (!strcmp(argv[2], "enable")) {
-		if (argc == 8)
-			return wlconf_dpsta_enable(argc, argv);
-		else {
-			fprintf(stderr, "Usage: wlconf dpsta enable <enable: 1|0> <lan_uif> <policy> <uif0: ethX> <uif1: ethX>\n");
-			return -1;
-		}
-	}
-	else if (!strcmp(argv[2], "uif")) {
-		if (argc == 3)
-			return wlconf_dpsta_iovar(argc, argv, DPSTA_IOV_UIF);
-		else {
-			fprintf(stderr, "Only get is allowed!\n");
-			return -1;
-		}
-	}
-	else if (argc >= 3 && !strcmp(argv[2], "msglevel"))
-		return wlconf_dpsta_iovar(argc, argv, DPSTA_IOV_MSGLEVEL);
-	else if (argc == 3 && !strcmp(argv[2], "dpinfo"))
-		return wlconf_dpsta_iovar(argc, argv, DPSTA_IOV_DPINFO);
-#endif
 	else {
 		fprintf(stderr, "Usage: wlconf <ifname> up|down\n");
 		return -1;
