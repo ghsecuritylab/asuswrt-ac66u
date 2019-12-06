@@ -3078,6 +3078,7 @@ void btn_check(void)
 
 #if defined(RTCONFIG_BCMWL6) && defined(RTCONFIG_PROXYSTA)
 	if ((psta_exist() || psr_exist())
+		&& !dpsr_mode()
 #ifdef RTCONFIG_DPSTA
 		&& !dpsta_mode()
 #endif
@@ -3241,8 +3242,12 @@ void btn_check(void)
 
 			if (is_wps_stopped() || --wsc_timeout == 0)
 			{
-#if defined(HND_ROUTER) && defined(RTCONFIG_PROXYSTA) && defined(RTCONFIG_DPSTA)
-				if (!nvram_get_int("wps_band_x") && is_dpsta(nvram_get_int("wps_band_x")))
+#if defined(HND_ROUTER) && defined(RTCONFIG_PROXYSTA)
+				if (!nvram_get_int("wps_band_x") && (is_dpsr(nvram_get_int("wps_band_x"))
+#ifdef RTCONFIG_DPSTA
+					|| is_dpsta(nvram_get_int("wps_band_x"))
+#endif
+				))
 					eval("wl", "spatial_policy", "1");
 #endif
 				wsc_timeout = 0;
@@ -7095,9 +7100,6 @@ wdp:
 	networkmap_check();
 	httpd_check();
 	dnsmasq_check();
-#ifdef RTCONFIG_NEW_USER_LOW_RSSI
-	roamast_check();
-#endif
 #ifdef RTAC87U
 	qtn_module_check();
 #endif

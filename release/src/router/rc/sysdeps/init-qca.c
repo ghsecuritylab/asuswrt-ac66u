@@ -1720,6 +1720,11 @@ void init_syspara(void)
 		nvram_set("wl_mssid", "0");
 	else
 		nvram_set("wl_mssid", "1");
+#if defined(RTAC58U)
+	if (check_mid("Hydra")) {
+		nvram_set("wl_mssid", "1"); // Hydra's MAC may not be multible of 4
+	}
+#endif
 #endif
 
 #if defined(RTCONFIG_SOC_IPQ8064) || defined(RTCONFIG_QCA_VAP_LOCALMAC)

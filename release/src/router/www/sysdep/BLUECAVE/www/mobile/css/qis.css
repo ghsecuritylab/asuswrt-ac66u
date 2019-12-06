@@ -390,6 +390,12 @@ a{
 	font-size: 1.4em;
 	font-style: italic;
 }
+.hint_yellow{
+	color: #FC0;
+	margin-top: -25px;
+	font-size: 1.4em;
+	font-style: italic;
+}
 .selectorHint{
 	margin-top: 10px;
 	margin-left: 35px;

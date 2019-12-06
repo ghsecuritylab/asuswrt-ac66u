@@ -555,7 +555,8 @@ void start_wl(void)
 #endif
 	nvram_set("reload_svc_radio", "1");
 #ifdef RTCONFIG_CFGSYNC
-	update_macfilter_relist();//rico
+	if (nvram_get("cfg_relist") && strlen(nvram_safe_get("cfg_relist")))
+		update_macfilter_relist();
 #endif
 }
 
@@ -2061,7 +2062,7 @@ void start_lan(void)
 #endif
 #ifdef RTCONFIG_EMF
 		if (nvram_get_int("emf_enable")
-#ifdef RTCONFIG_BCMWL6
+#if defined(RTCONFIG_BCMWL6) && !defined(HND_ROUTER)
 			|| wl_igs_enabled()
 #endif
 		) {
@@ -2472,7 +2473,7 @@ gmac3_no_swbr:
 #endif
 #ifdef RTCONFIG_EMF
 					if (nvram_get_int("emf_enable")
-#ifdef RTCONFIG_BCMWL6
+#if defined(RTCONFIG_BCMWL6) && !defined(HND_ROUTER)
 						|| wl_igs_enabled()
 #endif
 					) {
@@ -3021,7 +3022,7 @@ gmac3_no_swbr:
 #endif
 #ifdef RTCONFIG_EMF
 				if (nvram_get_int("emf_enable")
-#ifdef RTCONFIG_BCMWL6
+#if defined(RTCONFIG_BCMWL6) && !defined(HND_ROUTER)
 					|| wl_igs_enabled()
 #endif
 				)
@@ -3228,7 +3229,7 @@ void hotplug_net(void)
 
 #ifdef RTCONFIG_EMF
 		if (nvram_get_int("emf_enable")
-#ifdef RTCONFIG_BCMWL6
+#if defined(RTCONFIG_BCMWL6) && !defined(HND_ROUTER)
 			|| wl_igs_enabled()
 #endif
 		) {
@@ -3289,7 +3290,7 @@ void hotplug_net(void)
 
 #ifdef RTCONFIG_EMF
 		if (nvram_get_int("emf_enable")
-#ifdef RTCONFIG_BCMWL6
+#if defined(RTCONFIG_BCMWL6) && !defined(HND_ROUTER)
 			|| wl_igs_enabled()
 #endif
 		)
@@ -4572,7 +4573,7 @@ gmac3_no_swbr:
 #endif
 #ifdef RTCONFIG_EMF
 			if (nvram_get_int("emf_enable")
-#ifdef RTCONFIG_BCMWL6
+#if defined(RTCONFIG_BCMWL6) && !defined(HND_ROUTER)
 				|| wl_igs_enabled()
 #endif
 			)
@@ -4775,7 +4776,7 @@ void start_lan_wl(void)
 	lan_ifname = strdup(nvram_safe_get("lan_ifname"));
 #ifdef RTCONFIG_EMF
 	if (nvram_get_int("emf_enable")
-#ifdef RTCONFIG_BCMWL6
+#if defined(RTCONFIG_BCMWL6) && !defined(HND_ROUTER)
 		|| wl_igs_enabled()
 #endif
 	) {
@@ -5170,7 +5171,7 @@ gmac3_no_swbr:
 #endif
 #ifdef RTCONFIG_EMF
 					if (nvram_get_int("emf_enable")
-#ifdef RTCONFIG_BCMWL6
+#if defined(RTCONFIG_BCMWL6) && !defined(HND_ROUTER)
 						|| wl_igs_enabled()
 #endif
 					) {
@@ -5247,7 +5248,8 @@ gmac3_no_swbr:
 	start_wds_ra();
 #endif
 #ifdef RTCONFIG_CFGSYNC
-	update_macfilter_relist();//start_lan_wl
+	if (nvram_get("cfg_relist") && strlen(nvram_safe_get("cfg_relist")))
+		update_macfilter_relist();
 #endif
 
 	free(lan_ifname);
@@ -5481,11 +5483,15 @@ void lanaccess_wl(void)
 				for (u = 0; u < MAX_NR_WL_IF; ++u) {
 					if (u == unit || !get_wlxy_ifname(u, 0, owif))
 						continue;
-#if !defined(RTCONFIG_HAS_5G_2)
+#if defined(RTCONFIG_QCA) && !defined(RTCONFIG_HAS_5G_2)
 					if (u == 2)
 						continue;
 #endif
+#ifdef RTCONFIG_QCA
 					eval("ebtables", "-A", "FORWARD", "-p", "arp", "-i", ifname, "-o", owif, "-j", "DROP");
+#else
+					eval("ebtables", "-A", "FORWARD", "-i", ifname, "-o", owif, "-j", "DROP");
+#endif
 				}
 			}
 

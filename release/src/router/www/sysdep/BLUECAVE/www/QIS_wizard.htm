@@ -1504,7 +1504,51 @@
 							<div class="inputContainer">
 								<select id="wlc_auth_mode_manual" class="optionInput">
 									<option value="open">Open System</option>
+									<option value="shared">Shared Key</option>
+									<option value="psk">WPA-Personal</option>
 									<option value="psk2" selected>WPA2-Personal</option>
+								</select>
+								<div class="inputTitle hint_yellow" id="manual_pap_setup-nmode_hint">
+									<#WLANConfig11n_automode_limition_hint#>
+								</div>
+							</div>
+						</div>
+
+						<div class="manual_pap_setup" id="manual_pap_setup-crypto">
+							<div class="inputTitleContainer">
+								<div class="inputTitle"><#WLANConfig11b_WPAType_itemname#></div>
+							</div>
+							<div class="inputContainer">
+								<select id="wlc_crypto_manual" class="optionInput">
+									<option value="aes">AES</option>
+									<option value="tkip">TKIP</option>
+								</select>
+							</div>
+						</div>
+
+						<div class="manual_pap_setup" id="manual_pap_setup-wep">
+							<div class="inputTitleContainer">
+								<div class="inputTitle"><#WLANConfig11b_WEPType_itemname#></div>
+							</div>
+							<div class="inputContainer">
+								<select id="wlc_wep_manual" class="optionInput">
+									<option value="0"><#wl_securitylevel_0#></option>
+									<option value="1">WEP-64bits</option>
+									<option value="2">WEP-128bits</option>
+								</select>
+							</div>
+						</div>
+
+						<div class="manual_pap_setup" id="manual_pap_setup-key-index">
+							<div class="inputTitleContainer">
+								<div class="inputTitle"><#WLANConfig11b_WEPDefaultKey_itemname#></div>
+							</div>
+							<div class="inputContainer">
+								<select id="wlc_key_index_manual" class="optionInput">
+									<option value="1">1</option>
+									<option value="2">2</option>
+									<option value="3">3</option>
+									<option value="4">4</option>
 								</select>
 							</div>
 						</div>

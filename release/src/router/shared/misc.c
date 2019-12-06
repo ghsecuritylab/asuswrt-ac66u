@@ -2755,6 +2755,16 @@ int is_dpsta(int unit)
 }
 #endif
 
+int is_dpsr(int unit)
+{
+	if (dpsr_mode()) {
+		if ((num_of_wl_if() == 2) || !unit || unit == nvram_get_int("dpsta_band"))
+			return 1;
+	}
+
+	return 0;
+}
+
 int is_psta(int unit)
 {
 	if (unit < 0) return 0;
@@ -2775,13 +2785,14 @@ int is_psr(int unit)
 	if ((sw_mode() == SW_MODE_AP) &&
 		(nvram_get_int("wlc_psta") == 2) &&
 		(
+		is_dpsr(unit) ||
 #ifdef RTCONFIG_DPSTA
 		is_dpsta(unit) ||
-#endif
-#if defined(RTCONFIG_AMAS) && defined(RTCONFIG_DPSTA)
+#ifdef RTCONFIG_AMAS
 		dpsta_mode() ||
 #endif
-		((nvram_get_int("wlc_band") == unit)
+#endif
+		((nvram_get_int("wlc_band") == unit) && !dpsr_mode()
 #ifdef RTCONFIG_DPSTA
 		&& !dpsta_mode()
 #endif
@@ -3675,6 +3686,7 @@ char *if_nametoalias(char *name, char *alias, int alias_len)
 			if (!strcmp(ifname, name)) {
 #if defined(CONFIG_BCMWL5) || defined(RTCONFIG_BCMARM)
 				if (repeater_mode()
+					|| dpsr_mode()
 #if defined(RTCONFIG_PROXYSTA) && defined(RTCONFIG_DPSTA)
 					|| dpsta_mode()
 #endif
@@ -3695,6 +3707,36 @@ char *if_nametoalias(char *name, char *alias, int alias_len)
 	}
 
 	return alias;
+}
+
+int check_re_in_macfilter(int unit, char *mac)
+{
+	char tmp[128], prefix[] = "wlXXXXXXXXXX_";
+	char *nv, *nvp, *b;
+	int exist = 0;
+
+#ifdef RTCONFIG_AMAS
+	if (nvram_get_int("re_mode") == 1)
+		snprintf(prefix, sizeof(prefix), "wl%d.1_", unit);
+	else
+#endif
+		snprintf(prefix, sizeof(prefix), "wl%d_", unit);
+
+	nv = nvp = strdup(nvram_safe_get(strcat_r(prefix, "maclist_x", tmp)));
+	if (nv) {
+		while ((b = strsep(&nvp, "<")) != NULL) {
+			if (strlen(b) == 0) continue;
+
+			if (strcmp(mac, b) == 0) {
+				dbg("mac (%s) exists in maclist_x (%s)\n", mac, prefix);
+				exist = 1;
+				break;
+			}
+		}
+		free(nv);
+	}
+
+	return exist;
 }
 #endif /* RTCONFIG_CFGSYNC */
 
@@ -3879,4 +3921,50 @@ int IPTV_ports_cnt(void)
 	else
 		cnt = 2;
 	return cnt;
+}
+
+/*
+ * Validate a mac address
+ * @mac:	pointer to mac address.
+ * 	1:	Legal mac address
+ *  	0:	illegal mac address
+ */
+int isValidMacAddress(const char* mac) {
+	int i=0, s=0;
+
+	while (*mac) {
+		if (isxdigit(*mac))
+			i++;
+		else if (*mac == ':' || *mac == '-') {
+			if (i == 0 || i / 2 - 1 != s)
+				break;
+			++s;
+		}
+		else
+			s = -1;
+		++mac;
+	}
+	return (i == 12 && (s == 5 || s == 0));
+}
+
+/*
+ * Validate a option input
+ * @option:	pointer to  a option.
+    @range:	unsigned int range.
+ * 	1:	Legal input
+ *  	0:	illegal input
+ */
+int isValidEnableOption(const char *option, int range) {
+
+	int n=0;
+
+	if(!option || strlen(option)!=1)
+		return 0;
+
+	n = safe_atoi(option);
+
+	if(n >= 0 && n <=range)
+		return 1;
+	else
+		return 0;
 }

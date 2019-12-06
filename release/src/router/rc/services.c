@@ -8876,7 +8876,7 @@ void check_services(void)
 #endif
 #ifdef RTCONFIG_AMAS
 	if(init_x_Setting == 0 && nvram_get_int("x_Setting") == 1) {
-		notify_rc("start_amas_lldpd");
+		notify_rc("restart_amas_lldpd");
 		init_x_Setting = 1;
 	}
 #endif
@@ -12708,6 +12708,12 @@ _dprintf("test 2. turn off the USB power during %d seconds.\n", reset_seconds[re
 		if(action&RC_SERVICE_START) start_obd_monitor();
 	}
 #endif
+#ifdef RTCONFIG_NEW_USER_LOW_RSSI
+	else if (strcmp(script,"roamast") == 0){
+		if(action&RC_SERVICE_STOP) stop_roamast();
+		if(action&RC_SERVICE_START) start_roamast();
+	}
+#endif
 #endif
 #ifdef RTCONFIG_HD_SPINDOWN
 #ifdef LINUX26
@@ -13099,7 +13105,7 @@ void start_amas_lldpd(void)
 #endif
 
 #if defined(RTCONFIG_AMAS) && defined(RTCONFIG_DPSTA)
-	if (dpsta_mode() && !nvram_get_int("re_mode"))
+	if (dpsta_mode() && !nvram_get_int("re_mode") && nvram_get_int("x_Setting"))
 		return;
 #endif
 

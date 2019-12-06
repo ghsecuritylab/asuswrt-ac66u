@@ -398,13 +398,28 @@ apply.wlcKey = function(){
 		qisPostData["wlc" + unit + "_band"] = $("#wlc_band_manual").val();
 		qisPostData["wlc" + unit + "_ssid"] = $("#wlc_ssid_manual").val();
 
-		if($("#wlc_auth_mode_manual").val() == "open"){
-			qisPostData["wlc" + unit + "_auth_mode"] = "open";
-			qisPostData["wlc" + unit + "_crypto"] = "";
+		qisPostData["wlc" + unit + "_auth_mode"] = "";
+		qisPostData["wlc" + unit + "_crypto"] = "";
+		qisPostData["wlc" + unit + "_wpa_psk"] = "";
+		qisPostData["wlc" + unit + "_wep"] = "";
+		qisPostData["wlc" + unit + "_wep_key"] = "";
+		qisPostData["wlc" + unit + "_key"] = "";
+
+		var auth_mode = $("#wlc_auth_mode_manual").val();
+		qisPostData["wlc" + unit + "_auth_mode"] = auth_mode;
+		var wep = $("#wlc_wep_manual").val();
+		if(auth_mode == "open"){
+			qisPostData["wlc" + unit + "_wep"] = wep;
+			if(wep != "0"){
+				isWepAuthMode = true;
+			}
 		}
-		else{
-			qisPostData["wlc" + unit + "_auth_mode"] = "psk2";
-			qisPostData["wlc" + unit + "_crypto"] = "aes";
+		else if(auth_mode == "shared"){
+			qisPostData["wlc" + unit + "_wep"] = wep;
+			isWepAuthMode = true;
+		}
+		else if(auth_mode == "psk" || auth_mode == "psk2"){
+			qisPostData["wlc" + unit + "_crypto"] = $("#wlc_crypto_manual").val();
 		}
 	}
 	else{
@@ -416,16 +431,17 @@ apply.wlcKey = function(){
 		if(hasBlank([$("#wlc_wifiKey")])) return false;
 
 		if(isWepAuthMode){
+			if(checkWepKey($("#wlc_wifiKey"), wep)) return false;
 			var wepKey = $("#wlc_wifiKey").val();
-
-			if(wepKey.length !== 5 && wepKey.length !== 10 && wepKey.length !== 13 && wepKey.length !== 26){
-				$("#wlc_wifiKey").showTextHint("<#JS_wepkey#>");
-				return false;
+			if(isManual){
+				qisPostData["wlc" + unit + "_key"] = $("#wlc_key_index_manual").val();
+				qisPostData["wlc" + unit + "_wep"] = wep;
 			}
-
-			qisPostData["wlc" + unit + "_key"] = 1;
+			else{
+				qisPostData["wlc" + unit + "_key"] = 1;
+				qisPostData["wlc" + unit + "_wep"] = (wepKey.length < 11) ? "1" : "2";
+			}
 			qisPostData["wlc" + unit + "_wep_key"] = wepKey;
-			qisPostData["wlc" + unit + "_wep"] = (wepKey.length < 11) ? "1" : "2";
 		}
 		else{
 			if(!validator.psk(document.getElementById("wlc_wifiKey"))) return false;
@@ -1103,11 +1119,33 @@ abort.backTo_papList_wlcKey = function(){
 			var band = qisPostData["wlc" + last_unit + "_band"];
 			var ssid = qisPostData["wlc" + last_unit + "_ssid"];
 			var auth_mode = qisPostData["wlc" + last_unit + "_auth_mode"];
+			var crypto = qisPostData["wlc" + last_unit + "_crypto"];
 			var wpa_psk = qisPostData["wlc" + last_unit + "_wpa_psk"];
+			var wep = qisPostData["wlc" + last_unit + "_wep"];
+			var wep_key = qisPostData["wlc" + last_unit + "_wep_key"];
+			var key = qisPostData["wlc" + last_unit + "_key"];
 			$("#wlc_band_manual  option[value=" + band + "]").prop("selected", true).change();
 			$("#wlc_ssid_manual").val(ssid);
 			$("#wlc_auth_mode_manual  option[value=" + auth_mode + "]").prop("selected", true).change();
-			$("#wlc_wifiKey").val(wpa_psk);
+			if(crypto == "")
+				$("#wlc_crypto_manual  option:first").prop("selected", true).change();
+			else
+				$("#wlc_crypto_manual  option[value=" + crypto + "]").prop("selected", true).change();
+			if(key == "")
+				$("#wlc_key_index_manual  option:first").prop("selected", true).change();
+			else
+				$("#wlc_key_index_manual  option[value=" + key + "]").prop("selected", true).change();
+			handleWLAuthModeItem();
+			handleWLWepOption();
+			if(wep == "")
+				$("#wlc_wep_manual  option:first").prop("selected", true).change();
+			else
+				$("#wlc_wep_manual  option[value=" + wep + "]").prop("selected", true).change();
+
+			if(wep == "1" || wep == "2")
+				$("#wlc_wifiKey").val(wep_key);
+			else
+				$("#wlc_wifiKey").val(wpa_psk);
 
 			postDataModel.remove(wlcMultiObj[last_unit]);
 			goTo.loadPage("wlcKey_setting", true);
@@ -2029,14 +2067,31 @@ goTo.wlcManual = function(){
 	$("#wlc_ssid_manual").val("");
 	$("#wlc_band_manual option:first").prop("selected", true).change();
 	$("#wlc_auth_mode_manual").val("psk2").change();
-	$("#wlc_auth_mode_manual")
-		.change(function(){
-			var curAuthMode = $(this).val();
-			$("#manual_pap_setup-key").toggle(curAuthMode !== "open");
-		});
-
+	$("#wlc_crypto_manual option:first").prop("selected", true).change();
+	$("#wlc_wep_manual option:first").prop("selected", true).change();
+	$("#wlc_key_index_manual option:first").prop("selected", true).change();
 	$("#wlc_wifiKey").val("");
 	$("#wlc_wifiKey").showTextHint("");
+
+	$("#manual_pap_setup-nmode_hint").hide();
+	$("#manual_pap_setup-wep").hide();
+	$("#manual_pap_setup-key-index").hide();
+
+	$("#wlc_auth_mode_manual")
+		.change(function(){
+			handleWLAuthModeItem();
+			handleWLWepOption($(this).val());
+		});
+
+	$("#wlc_crypto_manual")
+		.change(function(){
+			handleWLAuthModeItem();
+		});
+
+	$("#wlc_wep_manual")
+		.change(function(){
+			handleWLAuthModeItem();
+		});
 
 	goTo.loadPage("wlcKey_setting", false);
 };

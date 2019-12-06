@@ -533,17 +533,8 @@ wl_defaults(void)
 #if defined(RTCONFIG_BCMWL6) && defined(RTCONFIG_PROXYSTA)
 			if (is_psta(unit))
 				nvram_set(strcat_r(prefix, "bss_enabled", tmp), "0");
-			else if (is_psr(unit) && (subunit == 1)) {
-#ifdef RTCONFIG_DPSTA
-#ifdef RTCONFIG_AMAS
-					nvram_set(strcat_r(prefix, "bss_enabled", tmp), (!dpsta_mode() || is_dpsta(unit) || (dpsta_mode() && nvram_get_int("re_mode") == 1)) ? "1" : "0");
-#else
-					nvram_set(strcat_r(prefix, "bss_enabled", tmp), (!dpsta_mode() || is_dpsta(unit) ) ? "1" : "0");
-#endif
-#else
-					nvram_set(strcat_r(prefix, "bss_enabled", tmp), "1");
-#endif
-			}
+			else if (is_psr(unit) && (subunit == 1))
+				nvram_set(strcat_r(prefix, "bss_enabled", tmp), "1");
 #endif
 
 			if (nvram_match(strcat_r(prefix, "bss_enabled", tmp), "1"))
@@ -4753,6 +4744,9 @@ int init_nvram(void)
 		if (check_mid("Hydra")) {
 			nvram_set_int("btn_rst_gpio", 1|GPIO_ACTIVE_LOW);
 			nvram_set_int("btn_wps_gpio", 63|GPIO_ACTIVE_LOW);
+			/* Hydra's MAC may not be multible of 4 */
+			nvram_set("wl0_vifnames", "wl0.1");
+			nvram_set("wl1_vifnames", "wl1.1");
 		} else {
 			nvram_set_int("btn_rst_gpio", 4|GPIO_ACTIVE_LOW);
 			nvram_set_int("btn_wps_gpio", 63|GPIO_ACTIVE_LOW);
@@ -7033,10 +7027,6 @@ int init_nvram(void)
 		nvram_set("wl_ifnames", "eth5 eth6");
 		nvram_set("wl0_vifnames", "wl0.1 wl0.2 wl0.3");
 		nvram_set("wl1_vifnames", "wl1.1 wl1.2 wl1.3");
-#ifdef RTCONFIG_DFS_US
-		if (!strncmp(nvram_safe_get("territory_code"), "US", 2))
-			nvram_set("wl1_dfs", "1");
-#endif
 
 #if defined(RTCONFIG_AMAS)
 #ifdef RTCONFIG_DPSTA

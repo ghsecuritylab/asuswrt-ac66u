@@ -744,6 +744,16 @@ void generate_switch_para(void)
 			}
 			else
 #endif
+#ifdef RTAC68U
+			if (is_dpsta_repeater() && !nvram_get_int("x_Setting"))
+			{
+				nvram_set("vlan1ports", "1 2 3 4 5*");
+				nvram_set("vlan2ports", "0 5u");
+				nvram_set("lanports", "1 2 3 4");
+				nvram_set("wanports", "0");
+			}
+			else
+#endif
 			if (cfg != SWCFG_BRIDGE) {
 				int wan1cfg = nvram_get_int("wans_lanport");
 
@@ -2018,6 +2028,7 @@ reset_mssid_hwaddr(int unit)
 	int unit_total = num_of_wl_if();
 #if defined(RTCONFIG_BCMWL6) && defined(RTCONFIG_PROXYSTA)
 	int psr = (is_psr(unit)
+			|| dpsr_mode()
 #ifdef RTCONFIG_DPSTA
 			|| dpsta_mode()
 #endif
@@ -2178,6 +2189,7 @@ reset_psr_hwaddr()
 	int model = get_model();
 	int unit = 0;
 	int restore = !(is_psr(0)
+			|| dpsr_mode()
 #ifdef RTCONFIG_DPSTA
 			|| dpsta_mode()
 #endif
@@ -3042,8 +3054,12 @@ void generate_wl_para(char *ifname, int unit, int subunit)
 #endif
 
 		nvram_set(strcat_r(prefix, "wps_mode", tmp), (nvram_match("wps_enable", "1") && (nvram_match(strcat_r(prefix, "mode", tmp2), "ap")
-#if defined(RTCONFIG_PROXYSTA) && defined(RTCONFIG_DPSTA)
-			|| (!unit && is_dpsta(unit))
+#ifdef RTCONFIG_PROXYSTA
+			|| (!unit && (is_dpsr(unit)
+#ifdef RTCONFIG_DPSTA
+				|| is_dpsta(unit)
+#endif
+			))
 #endif
 			)) ? "enabled" : "disabled");
 
@@ -3153,9 +3169,13 @@ void generate_wl_para(char *ifname, int unit, int subunit)
 			}
 		}
 
-//#if defined(RTCONFIG_PSR_GUEST) && defined(RTCONFIG_DPSTA)
+//#ifdef RTCONFIG_PSR_GUEST
 #if 0
-		nvram_set(strcat_r(prefix, "mbss_rmac", tmp), (nvram_match(strcat_r(prefix, "psr_guest", tmp2), "1") && dpsta_mode()) ? "1" : "0");
+		nvram_set(strcat_r(prefix, "mbss_rmac", tmp), (nvram_match(strcat_r(prefix, "psr_guest", tmp2), "1") && (dpsr_mode()
+#ifdef RTCONFIG_DPSTA
+			|| dpsta_mode()
+#endif
+			)) ? "1" : "0");
 #else
 		nvram_unset(strcat_r(prefix, "mbss_rmac", tmp));
 #endif
@@ -3180,16 +3200,10 @@ void generate_wl_para(char *ifname, int unit, int subunit)
 		else if (is_psr(unit)) {
 			if (subunit == 1)
 			{
+				nvram_set(strcat_r(prefix, "bss_enabled", tmp), "1");
 #ifdef RTCONFIG_DPSTA
-#ifdef RTCONFIG_AMAS
-				nvram_set(strcat_r(prefix, "bss_enabled", tmp), (!dpsta_mode() || is_dpsta(unit) || (dpsta_mode() && nvram_get_int("re_mode") == 1)) ? "1" : "0");
-#else
-				nvram_set(strcat_r(prefix, "bss_enabled", tmp), (!dpsta_mode() || is_dpsta(unit)) ? "1" : "0");
-#endif
 				if (!unit)
 				nvram_set(strcat_r(prefix, "wps_mode", tmp), "enabled");
-#else
-				nvram_set(strcat_r(prefix, "bss_enabled", tmp), "1");
 #endif
 			}
 			else
@@ -3250,13 +3264,12 @@ void generate_wl_para(char *ifname, int unit, int subunit)
 		snprintf(prefix2, sizeof(prefix2), "wlc%d_", unit ? 1 : 0);
 
 		if (nvram_match("x_Setting", "0") ||
+			((dpsr_mode()
 #ifdef RTCONFIG_DPSTA
-			(is_dpsta(unit) && nvram_get_int("re_mode") == 0 && !strlen(nvram_safe_get(strcat_r(prefix2, "ssid", tmp)))) ||
-#ifdef RTCONFIG_AMAS
-			(dpsta_mode() && nvram_get_int("re_mode") == 1 && !strlen(nvram_safe_get(strcat_r(prefix2, "ssid", tmp)))) ||
+				|| dpsta_mode()
 #endif
-#endif
-			(
+				) && !strlen(nvram_safe_get(strcat_r(prefix2, "ssid", tmp)))) ||
+			(!dpsr_mode() &&
 #ifdef RTCONFIG_DPSTA
 				!dpsta_mode() &&
 #endif
@@ -3269,10 +3282,12 @@ void generate_wl_para(char *ifname, int unit, int subunit)
 		}
 		else if (subunit == -1) {
 			nvram_set("ure_disable", "1");
+			if (is_dpsr(unit)
 #ifdef RTCONFIG_DPSTA
-			if (is_dpsta(unit)
+				|| is_dpsta(unit)
 #ifdef RTCONFIG_AMAS
 				|| (dpsta_mode() && nvram_get_int("re_mode") == 1)
+#endif
 #endif
 				) {
 				nvram_set(strcat_r(prefix, "ssid", tmp), nvram_safe_get(strcat_r(prefix2, "ssid", tmp2)));
@@ -3288,7 +3303,7 @@ void generate_wl_para(char *ifname, int unit, int subunit)
 				nvram_set(strcat_r(prefix, "crypto", tmp), nvram_safe_get(strcat_r(prefix2, "crypto", tmp2)));
 				nvram_set(strcat_r(prefix, "wpa_psk", tmp), nvram_safe_get(strcat_r(prefix2, "wpa_psk", tmp2)));
 
-#ifdef RTCONFIG_AMAS
+#if defined(RTCONFIG_AMAS) && defined(RTCONFIG_DPSTA)
 				if (dpsta_mode() && nvram_get_int("re_mode") == 1)
 				{
 					snprintf(prefix_local, sizeof(prefix_local), "wl%d.%d_", unit, 1);
@@ -3308,7 +3323,6 @@ void generate_wl_para(char *ifname, int unit, int subunit)
 #endif
 			}
 			else
-#endif
 			{
 				nvram_set(strcat_r(prefix, "ssid", tmp), nvram_safe_get("wlc_ssid"));
 				nvram_set(strcat_r(prefix, "auth_mode_x", tmp), nvram_safe_get("wlc_auth_mode"));

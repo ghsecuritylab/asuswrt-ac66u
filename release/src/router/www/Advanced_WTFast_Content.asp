@@ -843,7 +843,7 @@ function wtf_login(){
 		document.getElementById("loadingIcon_login").style.display = "";
 		document.getElementById("login_button").style.display = "none";
 		$.ajax({
-			url: "http://rapi.wtfast.com/user/login",
+			url: "https://rapi.wtfast.com/user/login",
 			jsonp: "callback",
 			dataType: "jsonp",
 			async: true,
@@ -909,7 +909,7 @@ function wtf_logout(){
 		document.getElementById("loadingIcon_logout").style.display = "";
 
 		$.ajax({
-			url: "http://rapi.wtfast.com/user/logout",
+			url: "https://rapi.wtfast.com/user/logout",
 			jsonp: "callback",
 			dataType: "jsonp",
 			async: true,

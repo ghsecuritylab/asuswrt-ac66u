@@ -153,6 +153,28 @@ function checkPasswd($obj){
 	});
 }
 
+function checkWepKey($obj, wepType){
+	var status = false;
+	var wepKey = $obj.val();
+	if(wepType == "1"){
+		if(!(wepKey.length === 5 && validator.string($obj[0])) &&
+			!(wepKey.length === 10 && validator.hex($obj[0])))
+		{
+			$obj.showTextHint("<#JS_wepkey#><#WLANConfig11b_WEPKey_itemtype1#>");
+			status = true;
+		}
+	}
+	else if(wepType == "2"){
+		if(!(wepKey.length === 13 && validator.string($obj[0])) &&
+			!(wepKey.length === 26 && validator.hex($obj[0])))
+		{
+			$obj.showTextHint("<#JS_wepkey#><#WLANConfig11b_WEPKey_itemtype2#>");
+			status = true;
+		}
+	}
+	return status;
+}
+
 function hasBlank(objArray){
 	$(".hint").remove();
 	$.each(objArray, function(idx, $obj){
@@ -692,7 +714,7 @@ var isSupport = function(_ptn){
 			matchingResult = (isSku("US") || isSku("CA") || isSku("TW") || isSku("CN")) ? false : true;
 			break;
 		case "IPTV":
-			matchingResult = (isSku("EU") || isSku("SG") || isSku("AA") || isSku("TW")) ? true : false;
+			matchingResult = (isSku("US") || isSku("CN") || isSku("CA")) ? false : true;
 			break;
 		case "SMARTCONNECT":
 			matchingResult = (ui_support["smart_connect"] == 1 || ui_support["bandstr"] == 1) ? true : false;
@@ -998,5 +1020,40 @@ genWLBandOption = function(){
 		wlArray.forEach(function(band){
 			$("#wlc_band_manual").append($("<option>").val(band).html(getAllWlArray()[band].title));
 		});
+	}
+};
+handleWLWepOption = function(authMode){
+	if(authMode == "open"){
+		$("#wlc_wep_manual option[value='0']").show();
+		$("#wlc_wep_manual option[value='0']").prop("selected", true).change();
+	}
+	else if(authMode == "shared"){
+		$("#wlc_wep_manual option[value='0']").hide();
+		$("#wlc_wep_manual option[value='1']").prop("selected", true).change();
+	}
+};
+handleWLAuthModeItem = function(){
+	var auth_mode = $("#wlc_auth_mode_manual").val();
+	var crypto = $("#wlc_crypto_manual").val();
+	var wep = $("#wlc_wep_manual").val();
+	$("#manual_pap_setup-crypto").hide();
+	$("#manual_pap_setup-wep").hide();
+	$("#manual_pap_setup-key-index").hide();
+	$("#manual_pap_setup-key").hide();
+	$("#manual_pap_setup-nmode_hint").hide();
+	if(auth_mode == "open" && wep == "0"){
+		$("#manual_pap_setup-wep").show();
+	}
+	else if((auth_mode == "open" && wep != "0") || auth_mode == "shared"){
+		$("#manual_pap_setup-wep").show();
+		$("#manual_pap_setup-key-index").show();
+		$("#manual_pap_setup-key").show();
+		$("#manual_pap_setup-nmode_hint").show();
+	}
+	else if(auth_mode == "psk" || auth_mode == "psk2"){
+		$("#manual_pap_setup-crypto").show();
+		$("#manual_pap_setup-key").show();
+		if(crypto == "tkip")
+			$("#manual_pap_setup-nmode_hint").show();
 	}
 };

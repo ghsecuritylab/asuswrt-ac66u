@@ -1309,17 +1309,61 @@ ej_get_clientlist_from_json_database(int eid, webs_t wp, int argc, char_t **argv
 	if(amasList)
 		json_object_put(amasList);
 #endif
-	json_object_put(clients);
+	if(clients)
+		json_object_put(clients);
 
 	return ret;
 }
 
-static int ej_get_basic_clientlist(int eid, webs_t wp, int argc, char_t **argv)
+static int
+ej_get_all_basic_clientlist(int eid, webs_t wp, int argc, char_t **argv)
 {
-	int ret = 0, client_name_status = 0;
+	int ret;
+	struct json_object *clients=NULL;
+	struct json_object *clients_array_obj = NULL, *client_name = NULL, *macArray_tmp = NULL;
+	struct json_object *customList = NULL, *custom_attr_get = NULL, *custom_client_name = NULL;
+	int customList_status = 0;
+
+	if(!pids("networkmap") || (clients = json_object_from_file(NMP_CL_JSON_FILE)) == NULL){
+		ret = websWrite(wp, "[]");
+		return 0;
+	}
+
+	clients_array_obj = json_object_new_array();
+	customList = json_object_new_object();
+	customList_status = get_custom_clientlist_info(customList);
+
+	json_object_object_foreach(clients, key, val) {
+		macArray_tmp = json_object_new_array();
+		json_object_array_add(macArray_tmp, json_object_new_string(key));
+		if(customList_status && json_object_object_get_ex(customList, key, &custom_attr_get) && json_object_object_get_ex(custom_attr_get, "name", &custom_client_name)){
+			json_object_array_add(macArray_tmp, custom_client_name);
+		}else{
+			json_object_object_get_ex(val, "name", &client_name);
+			json_object_array_add(macArray_tmp, client_name);
+		}
+		json_object_array_add(clients_array_obj, macArray_tmp);
+	}
+
+	ret = websWrite(wp, "%s", json_object_to_json_string(clients_array_obj));
+
+	if(clients_array_obj)
+		json_object_put(clients_array_obj);
+	if(customList)
+		json_object_put(customList);
+	if(clients)
+		json_object_put(clients);
+
+	return ret;
+}
+
+static int get_basic_clientlist_info(webs_t wp, int val)
+{
+	int ret = 0, client_name_status = 0, wl_count = 0, wire_count = 0;
 	struct json_object *clients = NULL, *macArray = NULL, *macArray_tmp = NULL, *clients_array_obj = NULL, *client_name = NULL, *isWL = NULL;
 	macArray = json_object_new_array();
 	clients_array_obj = json_object_new_array();
+	macArray_tmp = json_object_new_array();
 
 	if((nvram_match("refresh_networkmap", "1") || nvram_match("rescan_networkmap", "1")) && (check_if_file_exist(NMP_CACHE_FILE)))
 	{
@@ -1335,9 +1379,6 @@ static int ej_get_basic_clientlist(int eid, webs_t wp, int argc, char_t **argv)
 
 	if(clients) {
 		json_object_object_foreach(clients, key, val){
-			macArray_tmp = json_object_new_array();
-			client_name = json_object_new_object();
-			isWL = json_object_new_object();
 			client_name_status = json_object_object_get_ex(val, "name", &client_name);
 
 			if(json_object_object_get_ex(val, "isWL", &isWL)){
@@ -1349,18 +1390,43 @@ static int ej_get_basic_clientlist(int eid, webs_t wp, int argc, char_t **argv)
 						json_object_array_add(macArray_tmp, json_object_new_string(key));
 
 					json_object_array_add(clients_array_obj, macArray_tmp);
-				}
+					wl_count++;
+				}else
+					wire_count++;
 			}
 		}
 	}
-	ret = websWrite(wp, "%s", json_object_to_json_string(clients_array_obj));
-	if(clients){
+	if(val == 1)
+		ret = websWrite(wp, "%s", json_object_to_json_string(clients_array_obj));
+	else if(val == 2)
+		ret = websWrite(wp, "{\"wireless\":\"%d\", \"wire\":\"%d\"}", wl_count, wire_count);
+
+	if(clients)
 		json_object_put(clients);
+	if(macArray)
 		json_object_put(macArray);
+	if(clients_array_obj)
 		json_object_put(clients_array_obj);
-	}
+	if(macArray_tmp)
+		json_object_put(macArray_tmp);
 
 	return ret;
+}
+
+
+static int ej_get_basic_clientlist(int eid, webs_t wp, int argc, char_t **argv)
+{
+	/* 1:wireless client 2: wireless/wired count */
+	get_basic_clientlist_info(wp, 1);
+	return 0;
+}
+
+
+static int ej_get_basic_clientlist_count(int eid, webs_t wp, int argc, char_t **argv)
+{
+	/* 1:wireless client 2: wireless/wired count */
+	get_basic_clientlist_info(wp, 2);
+	return 0;
 }
 
 #if 0
@@ -2200,6 +2266,9 @@ static void do_html_post_and_get(char *url, FILE *stream, int len, char *boundar
 
 	query = url;
 	strsep(&query, "?");
+
+	HTTPD_DBG("post_buf = %s\n", post_buf);
+	HTTPD_DBG("query = %s\n", query);
 
 	if (query && strlen(query) > 0){
 		if (strlen(post_buf) > 0)
@@ -14700,6 +14769,10 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 	next_page = websGetVar(wp, "next_page", "");
 
 	authorization_t = websGetVar(wp, "login_authorization","");
+
+#ifdef RTCONFIG_UIDEBUG
+	HTTPD_DBG("authorization_t = %s\n", authorization_t);
+#endif
 	/* Decode it. */
 	l = b64_decode( &(authorization_t[0]), (unsigned char*) authinfo, sizeof(authinfo) );
 	authinfo[l] = '\0';
@@ -14789,6 +14862,7 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 	//if (!authpass_fail && nvram_match("http_username", authinfo) && nvram_match("http_passwd", authpass))
 	if (!authpass_fail && nvram_match("http_username", authinfo) && compare_passwd_in_shadow(authinfo, authpass))
 	{
+		HTTPD_DBG("authpass!\n");
 		if (fromapp_flag == FROM_BROWSER){
 			if(!cur_login_ip_type)
 			{
@@ -14805,7 +14879,9 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 
 		generate_token(asus_token, sizeof(asus_token));
 		add_asus_token(asus_token);
-
+#ifdef RTCONFIG_UIDEBUG
+		HTTPD_DBG("asus_token = %s\n", asus_token);
+#endif
 		websWrite(wp,"Set-Cookie: asus_token=%s; HttpOnly;\r\n",asus_token);
 		websWrite(wp,"Connection: close\r\n" );
 		websWrite(wp,"\r\n" );
@@ -14876,7 +14952,7 @@ login_cgi(webs_t wp, char_t *urlPrefix, char_t *webDir, int arg,
 		}else{
 			login_error_status = ACCOUNTFAIL;
 		}
-
+		HTTPD_DBG("authfail: login_error_status = %d\n", login_error_status);
 		if(fromapp_flag != 0){
 			if(login_error_status == LOGINLOCK)
 				websWrite(wp, "{\n\"error_status\":\"%d\",\"remaining_lock_time\":\"%ld\"\n}\n", login_error_status, LOCKTIME - login_dt);
@@ -14904,7 +14980,6 @@ app_call(char *func, FILE *stream, int first_row)
 	char *args, *end, *next;
 	int argc;
 	char * argv[16]={NULL};
-	int app_method_hit = 0;
 	struct ej_handler *handler;
 
 	/* Parse out ( args ) */
@@ -14941,16 +15016,13 @@ app_call(char *func, FILE *stream, int first_row)
 				websWrite(stream,"\"%s\":", func);
 
 			handler->output(0, stream, argc, argv);
-			app_method_hit = 1;
+
+			if(strcmp(func, "nvram_get") == 0 || strcmp(func, "nvram_default_get") == 0|| strcmp(func, "nvram_char_to_ascii") == 0)
+				websWrite(stream,"\"" );
+			else if(argv[0] != NULL && strcmp(argv[0], "appobj") == 0 && strncmp(func, "get_clientlist", 14) != 0)
+				websWrite(stream,"}" );
 		}
 	}
-	if (app_method_hit == 0 && (argv[0] == NULL || strcmp(argv[0], "appobj") != 0))
-		websWrite(stream,"\"\"");	//Not Support
-
-	if(strcmp(func, "nvram_get") == 0 || strcmp(func, "nvram_default_get") == 0|| strcmp(func, "nvram_char_to_ascii") == 0)
-		websWrite(stream,"\"" );
-	else if(argv[0] != NULL && strcmp(argv[0], "appobj") == 0 && strncmp(func, "get_clientlist", 14) != 0)
-		websWrite(stream,"}" );
 }
 
 static void
@@ -15253,6 +15325,228 @@ do_enable_remote_control_cgi(char *url, FILE *stream)
 	notify_rc(service_buf);
 }
 
+static int search_device_name_in_clientlist(const char *name, struct json_object *json_object_array){
+	int ret=0;
+	struct json_object *clients=NULL;
+	struct json_object *client_name = NULL;
+	struct json_object *customList = NULL, *custom_attr_get = NULL, *custom_client_name = NULL;
+	char custom_name[32];
+	int customList_status = 0;
+
+	if(!pids("networkmap") || (clients = json_object_from_file(NMP_CL_JSON_FILE)) == NULL){
+		HTTPD_DBG("search_device_name_in_clientlist fail\n");
+		return 0;
+	}
+
+	customList = json_object_new_object();
+	customList_status = get_custom_clientlist_info(customList);
+
+	json_object_object_foreach(clients, key, val) {
+		if(customList_status && json_object_object_get_ex(customList, key, &custom_attr_get) && json_object_object_get_ex(custom_attr_get, "name", &custom_client_name)){
+			strlcpy(custom_name, json_object_get_string(custom_client_name), sizeof(custom_name));
+			toLowerCase(custom_name);
+			if(!strcmp(name, custom_name))
+				json_object_array_add(json_object_array, json_object_new_string(key));
+		}else{
+			if(json_object_object_get_ex(val, "name", &client_name)){
+				strlcpy(custom_name, json_object_get_string(client_name), sizeof(custom_name));
+				toLowerCase(custom_name);
+				if(!strcmp(name, custom_name))
+					json_object_array_add(json_object_array, json_object_new_string(key));
+			}
+		}
+	}
+
+	ret = json_object_array_length(json_object_array);
+
+	if(customList)
+		json_object_put(customList);
+	if(clients)
+		json_object_put(clients);
+
+	return ret;
+}
+
+static int
+config_MULTIFILTER_setting(struct json_object *mac_array, char *option){
+
+	struct json_object *multifilter_obj = NULL, *multifilter_attr = NULL;
+	struct json_object *multifilter_mac = NULL, *multifilter_enable = NULL, *multifilter_devicename = NULL, *multifilter_daytime = NULL;
+	struct json_object *mac_value = NULL, *enable_value = NULL, *name_value = NULL, *daytime_value = NULL;
+	char word[4096], *word_next;
+	char enable_list[32], mac_list[512] , name_list[1024], daytime_list[4096];
+	char enable_list_tmp[32], mac_list_tmp[512] , name_list_tmp[1024], daytime_list_tmp[4096];
+	int i=0, j=0, arraylen=0, mac_arraylen=0, ret=1;
+
+	memset(enable_list, 0, sizeof(enable_list));
+	memset(mac_list, 0, sizeof(mac_list));
+	memset(name_list, 0, sizeof(name_list));
+	memset(daytime_list, 0, sizeof(daytime_list));
+
+	multifilter_obj =  json_object_new_object();
+	multifilter_mac =  json_object_new_array();
+	multifilter_enable =  json_object_new_array();
+	multifilter_devicename =  json_object_new_array();
+	multifilter_daytime = json_object_new_array();
+
+	foreach_62(word, nvram_safe_get("MULTIFILTER_MAC"), word_next)
+		json_object_array_add(multifilter_mac,json_object_new_string(word));
+	foreach_62(word, nvram_safe_get("MULTIFILTER_ENABLE"), word_next)
+		json_object_array_add(multifilter_enable,json_object_new_string(word));
+	foreach_62(word, nvram_safe_get("MULTIFILTER_DEVICENAME"), word_next)
+		json_object_array_add(multifilter_devicename,json_object_new_string(word));
+	foreach_62(word, nvram_safe_get("MULTIFILTER_MACFILTER_DAYTIME"), word_next)
+		json_object_array_add(multifilter_daytime,json_object_new_string(word));
+
+	if(multifilter_mac){
+		arraylen = json_object_array_length(multifilter_mac);
+		for (i=0; i< arraylen; i++){
+			multifilter_attr= json_object_new_object();
+			mac_value = json_object_array_get_idx(multifilter_mac, i);
+			json_object_object_add(multifilter_attr, "enable", json_object_array_get_idx(multifilter_enable, i));
+			json_object_object_add(multifilter_attr, "name", json_object_array_get_idx(multifilter_devicename, i));
+			json_object_object_add(multifilter_attr, "daytime", json_object_array_get_idx(multifilter_daytime, i));
+			json_object_object_add(multifilter_obj, json_object_get_string(mac_value), multifilter_attr);
+		}
+	}
+
+	mac_arraylen = json_object_array_length(mac_array);
+	for (i=0; i< mac_arraylen; i++){
+		multifilter_attr= json_object_new_object();
+		mac_value = json_object_array_get_idx(mac_array, i);
+		if(json_object_object_get_ex(multifilter_obj, json_object_get_string(mac_value), &multifilter_attr)){
+			if(atoi(option) == 1){
+				json_object_object_add(multifilter_attr, "daytime", json_object_new_string("<"));
+				json_object_object_add(multifilter_attr, "enable", json_object_new_string("1"));
+			}
+			else if(atoi(option) == 0)
+				json_object_object_del(multifilter_obj, json_object_get_string(mac_value));
+		}
+		else{
+			if(atoi(option) == 1){
+				multifilter_attr= json_object_new_object();
+				json_object_object_add(multifilter_attr, "enable", json_object_new_string("1"));
+				json_object_object_add(multifilter_attr, "name", json_object_new_string("New device"));
+				json_object_object_add(multifilter_attr, "daytime", json_object_new_string("<"));
+				json_object_object_add(multifilter_obj, json_object_get_string(mac_value), multifilter_attr);
+			}
+		}
+	}
+
+	if(json_object_object_length(multifilter_obj) > 16){
+		ret = 0;
+		goto FINISH;
+	}
+
+	json_object_object_foreach(multifilter_obj, key, val) {
+		json_object_object_get_ex(val, "enable", &enable_value);
+		json_object_object_get_ex(val, "name", &name_value);
+		json_object_object_get_ex(val, "daytime", &daytime_value);
+		if(j == 0){
+			strlcpy(mac_list, key, sizeof(mac_list));
+			strlcpy(enable_list, (enable_value)?json_object_get_string(enable_value):"1", sizeof(enable_list));
+			strlcpy(name_list, (name_value)?json_object_get_string(name_value):"New device", sizeof(name_list));
+			strlcpy(daytime_list, (daytime_value)?json_object_get_string(daytime_value):"<", sizeof(daytime_list));
+		}else{
+			snprintf(mac_list_tmp, sizeof(mac_list_tmp), "%s>%s", mac_list, key);
+			strlcpy(mac_list, mac_list_tmp, sizeof(mac_list));
+			snprintf(enable_list_tmp, sizeof(enable_list_tmp), "%s>%s", enable_list, (enable_value)?json_object_get_string(enable_value):"1");
+			strlcpy(enable_list, enable_list_tmp, sizeof(enable_list));
+			snprintf(name_list_tmp, sizeof(name_list_tmp), "%s>%s", name_list, (name_value)?json_object_get_string(name_value):"New device");
+			strlcpy(name_list, name_list_tmp, sizeof(name_list));
+			snprintf(daytime_list_tmp, sizeof(daytime_list_tmp), "%s>%s", daytime_list, (daytime_value)?json_object_get_string(daytime_value):"<");
+			strlcpy(daytime_list, daytime_list_tmp, sizeof(daytime_list));
+		}
+		j++;
+	}
+	nvram_set("MULTIFILTER_ALL", "1");
+	nvram_set("MULTIFILTER_MAC", mac_list);
+	nvram_set("MULTIFILTER_ENABLE", enable_list);
+	nvram_set("MULTIFILTER_DEVICENAME", name_list);
+	nvram_set("MULTIFILTER_MACFILTER_DAYTIME", daytime_list);
+	nvram_commit();
+
+FINISH:
+	if(multifilter_obj)
+		json_object_put(multifilter_obj);
+	if(multifilter_mac)
+		json_object_put(multifilter_mac);
+	if(multifilter_enable)
+		json_object_put(multifilter_enable);
+	if(multifilter_devicename)
+		json_object_put(multifilter_devicename);
+	if(multifilter_daytime)
+		json_object_put(multifilter_daytime);
+
+	return ret;
+}
+
+static void
+do_block_device_internet_cgi(char *url, FILE *stream)
+{
+	struct json_object *root=NULL;
+	struct json_object *block_mac_list=NULL;
+	char *block_mac=NULL, *enabled=NULL, *block_name=NULL, *block_option = NULL;
+	char word[4096], *word_next;
+	int arraylen=0, ret=0;
+
+	do_json_decode(&root);
+	block_option = safe_get_cgi_json("block_option", root); //name/mac
+	enabled = safe_get_cgi_json("enabled", root);
+
+	if(!isValidEnableOption(enabled, 1)){
+		HTTPD_DBG("invalid enabled option\n");
+		ret = 4001;
+		goto FINISH;
+	}
+
+	block_mac_list = json_object_new_array();
+
+	if(!strcmp(block_option, "name")){
+		block_name = safe_get_cgi_json("block_name", root);
+		arraylen = search_device_name_in_clientlist(block_name, block_mac_list);
+		if(arraylen == 0){
+			ret = 4002;
+			HTTPD_DBG("block name not found.\n");
+			goto FINISH;
+		}
+		HTTPD_DBG("block_mac_list = %s\n", json_object_to_json_string(block_mac_list));
+
+	}else if(!strcmp(block_option, "mac")){
+		block_mac = safe_get_cgi_json("block_mac", root);
+		foreach_62(word, block_mac, word_next){
+			if(!isValidMacAddress(word)){
+				ret = 4003;
+				HTTPD_DBG("invalid mac\n");
+				goto FINISH;
+			}else
+				json_object_array_add(block_mac_list,json_object_new_string(word));
+		}
+	}
+
+	ret = config_MULTIFILTER_setting(block_mac_list, enabled);
+
+	if(ret == 1)
+		notify_rc("restart_firewall");
+	else
+		HTTPD_DBG("over max limit items\n");
+
+FINISH:
+	websWrite(stream,"{\n" );
+	if(ret == 1 || ret == 0){
+		websWrite(stream,"\"statusCode\":\"%d\"\n", (ret)?200:4004);
+		websWrite(stream,",\"block_list\":%s\n", json_object_to_json_string(block_mac_list));
+	}
+	else
+		websWrite(stream,"\"statusCode\":\"%d\"\n", ret);
+	websWrite(stream,"}\n" );
+
+	if(block_mac_list)
+		json_object_put(block_mac_list);
+	if(root)
+		json_object_put(root);
+}
+
 static void
 do_check_Auth_cgi(char *url, FILE *stream)
 {
@@ -15529,6 +15823,7 @@ struct mime_handler mime_handlers[] = {
 	{ "nc_exist_wifi_notice.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_nc_exist_wifi_notice_cgi, do_auth },
 #endif
 #endif
+	{ "block_device_internet.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_block_device_internet_cgi, do_auth },
 	{ "enable_remote_control.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_enable_remote_control_cgi, do_auth },
 	{ "check_Auth.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_check_Auth_cgi, do_auth },
 	{ "auto_guestnetwork.cgi", "text/html", no_cache_IE7, do_html_post_and_get, do_auto_guestnetwork_cgi, do_auth },
@@ -22821,6 +23116,8 @@ struct ej_handler ej_handlers[] = {
 //	{ "load_clientlist_char_to_ascii", ej_load_clientlist_char_to_ascii},
 	{ "get_clientlist_from_json_database", ej_get_clientlist_from_json_database},
 	{ "get_basic_clientlist", ej_get_basic_clientlist},
+	{ "get_basic_clientlist_count", ej_get_basic_clientlist_count},
+	{ "get_all_basic_clientlist", ej_get_all_basic_clientlist},
 #endif
 //2008.08 magic{
 	{ "update_variables", ej_update_variables},

@@ -457,7 +457,7 @@ function check_eula(){
 
 	var asus_status = httpApi.nvramGet(["ASUS_EULA", "ASUS_EULA_time", "ddns_enable_x", "ddns_server_x"], true);
 	if( (asus_status.ASUS_EULA == "1" && asus_status.ASUS_EULA_time == "") ||
-		(asus_status.ASUS_EULA == "0" && asus_status.ddns_enable_x == "1" && asus_status.ddns_server_x == "WWW.ASUS.COM") ){
+		(asus_status.ASUS_EULA != "1" && asus_status.ddns_enable_x == "1" && asus_status.ddns_server_x == "WWW.ASUS.COM") ){
 		ASUS_EULA.check("asus");
 		return false;
 	}

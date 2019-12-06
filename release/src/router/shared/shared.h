@@ -324,7 +324,7 @@ enum {
 #define GIF_PREFIXLEN  0x0002  /* return prefix length */
 #define GIF_PREFIX     0x0004  /* return prefix, not addr */
 
-#define EXTEND_AIHOME_API_LEVEL		16
+#define EXTEND_AIHOME_API_LEVEL		17
 
 #define EXTEND_HTTPD_AIHOME_VER		0
 
@@ -1226,6 +1226,11 @@ static inline int dpsta_mode()
 }
 #endif
 
+static inline int dpsr_mode()
+{
+	return ((sw_mode() == SW_MODE_AP) && (nvram_get_int("wlc_psta") == 2) && (nvram_get_int("wlc_dpsta") == 2));
+}
+
 #if defined(RTCONFIG_BCMWL6) && defined(RTCONFIG_PROXYSTA)
 static inline int psr_mode()
 {
@@ -1646,6 +1651,8 @@ extern void ascii_to_char(const char *output, const char *input);
 extern const char *find_word(const char *buffer, const char *word);
 extern int remove_word(char *buffer, const char *word);
 extern void trim_space(char *str);
+extern void toLowerCase(char *str);
+extern void toUpperCase(char *str);
 
 // file.c
 extern int check_if_file_exist(const char *file);
@@ -1717,6 +1724,7 @@ extern int get_wifi_unit(char *wif);
 #ifdef RTCONFIG_DPSTA
 extern int is_dpsta(int unit);
 #endif
+extern int is_dpsr(int unit);
 extern int is_psta(int unit);
 extern int is_psr(int unit);
 extern int psta_exist(void);
@@ -1792,6 +1800,8 @@ extern struct vlan_rules_s *get_vlan_rules(void);
 #if defined(HND_ROUTER) && defined(RTCONFIG_BONDING)
 extern int get_bonding_status();
 #endif
+extern int isValidMacAddress(const char* mac);
+extern int isValidEnableOption(const char* option, int range);
 
 /* mt7620.c */
 #if defined(RTCONFIG_RALINK_MT7620)
@@ -2300,6 +2310,8 @@ extern void deauth_guest_sta(char *, char *);
 #define CLIENT_STALIST_JSON_PATH	"/tmp/stalist.json"
 extern int is_valid_group_id(const char *);
 extern char *if_nametoalias(char *name, char *alias, int alias_len);
+extern int check_re_in_macfilter(int unit, char *mac);
+extern void update_macfilter_relist();
 #endif
 
 #if defined(RTCONFIG_DETWAN) && (defined(RTCONFIG_SOC_IPQ40XX))
