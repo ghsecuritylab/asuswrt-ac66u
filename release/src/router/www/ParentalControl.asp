@@ -768,7 +768,7 @@ function addRow_main(upper){
 		return false;
 	}
 	
-	if(!check_macaddr(document.form.PC_mac, check_hwaddr_flag(document.form.PC_mac))){
+	if(!check_macaddr(document.form.PC_mac, check_hwaddr_flag(document.form.PC_mac, 'inner'))){
 		document.form.PC_mac.focus();
 		document.form.PC_mac.select();
 		return false;	
