@@ -1203,6 +1203,7 @@ void start_dnsmasq(void)
 					    nvram_safe_get("lan_hostname"));
 			}
 		}
+
 #endif
 		fclose(fp);
 	} else
